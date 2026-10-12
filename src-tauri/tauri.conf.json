@@ -33,6 +33,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": true,
     "resources": ["resources/node-http-server.cjs"],
     "icon": [
       "icons/32x32.png",
