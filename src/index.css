@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 255 255 255;
+  --bg-subtle: 248 250 252;
+  --bg-muted: 241 245 249;
+  --bg-hover: 226 232 240;
+  --fg: 15 23 42;
+  --fg-muted: 71 85 105;
+  --fg-subtle: 148 163 184;
+  --border: 226 232 240;
+  --border-strong: 203 213 225;
+  --accent: 79 70 229;
+  --accent-fg: 255 255 255;
+  --success: 22 163 74;
+  --warning: 217 119 6;
+  --danger: 220 38 38;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 15 23 42;
+  --bg-subtle: 23 33 54;
+  --bg-muted: 30 41 59;
+  --bg-hover: 51 65 85;
+  --fg: 248 250 252;
+  --fg-muted: 148 163 184;
+  --fg-subtle: 100 116 139;
+  --border: 51 65 85;
+  --border-strong: 71 85 105;
+  --accent: 129 140 248;
+  --accent-fg: 15 23 42;
+  --success: 34 197 94;
+  --warning: 251 191 36;
+  --danger: 248 113 113;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  @apply bg-bg text-fg font-sans text-sm antialiased;
+  margin: 0;
+  user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-strong));
+  border-radius: 6px;
+  border: 2px solid rgb(var(--bg));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--fg-subtle));
+}
