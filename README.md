@@ -43,6 +43,7 @@
 | OpenCode | `%USERPROFILE%\.config\opencode` |
 | Pi | `%USERPROFILE%\.pi\agent` |
 | Grok | `%USERPROFILE%\.grok` |
+| Antigravity CLI | `%USERPROFILE%\.gemini\antigravity-cli` |
 
 默认条目可以修改、删除，也可以继续添加自定义工具。导入导出只包含工具名称和配置目录路径，不会复制目录内的文件、账号或密钥。导入时按条目 ID 合并，当前机器不存在的路径会保留并可重新选择。
 
@@ -55,6 +56,7 @@
 | OpenCode | `opencode.json(c)`(全局配置)、`tui.json(c)`(界面配置)、`AGENTS.md`(全局规则)、`agents/`、`commands/`、`plugins/`、`skills/` |
 | Pi | `settings.json`、`keybindings.json`、`mcp.json`、`models.json`、`auth.json`、`AGENTS.md`、`SYSTEM.md`、`APPEND_SYSTEM.md`、`extensions/`、`skills/`、`prompts/`、`themes/` |
 | Grok | `user-settings.json`(用户设置)、`workspace-trust.json`(工作区信任) |
+| Antigravity CLI | `settings.json`(持久化设置,仅保存与默认值不同的项)、`keybindings.json`(自定义键位绑定) |
 
 ## AI 终端管理
 

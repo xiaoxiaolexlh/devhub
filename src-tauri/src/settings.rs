@@ -11,6 +11,10 @@ pub const APP_DATA_DIR: &str = "com.xiaoxiaol123456.devhub";
 /// Temp-directory prefix for the extension trash folder.
 pub const APP_TRASH_DIR: &str = "devhub-trash";
 
+/// Current settings.json schema version. Bump when a release must backfill
+/// data into files saved by older builds; migrate_settings runs once per bump.
+pub const SETTINGS_VERSION: u32 = 1;
+
 /// How a path should be opened from the app.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -302,6 +306,12 @@ impl Default for NodeService {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Schema version of the saved settings.json. Older files (missing field)
+    /// parse as 0 and receive one-time backfills in migrate_settings. Field
+    /// level default (0) must win over the struct default (SETTINGS_VERSION)
+    /// so pre-versioning files count as un-migrated.
+    #[serde(default)]
+    pub settings_version: u32,
     pub editors: Vec<Editor>,
     pub source_editor: String,
     /// "skip" | "ask" | "overwrite"
@@ -331,6 +341,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            settings_version: SETTINGS_VERSION,
             editors: default_editors(),
             source_editor: "vscode".into(),
             conflict_strategy: "ask".into(),
@@ -413,6 +424,12 @@ fn default_ai_config_tools() -> Vec<AiConfigTool> {
         ),
         ("pi", "Pi", home.join(".pi").join("agent")),
         ("grok", "Grok", home.join(".grok")),
+        // Antigravity CLI (agy) keeps its settings under Gemini's home directory.
+        (
+            "antigravity-cli",
+            "Antigravity CLI",
+            home.join(".gemini").join("antigravity-cli"),
+        ),
     ]
     .into_iter()
     .map(|(id, name, path)| AiConfigTool {
@@ -495,6 +512,7 @@ pub fn load() -> Settings {
         .ok()
         .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
         .map(merge_with_defaults)
+        .map(migrate_settings)
         .map(normalize_paths)
         .unwrap_or_default()
 }
@@ -524,6 +542,22 @@ fn merge_with_defaults(mut s: Settings) -> Settings {
     if s.project_config_dirs.is_empty() {
         s.project_config_dirs = default_project_config_dirs();
     }
+    s
+}
+
+/// One-time backfill for settings saved by older builds. When
+/// SETTINGS_VERSION is bumped, built-in AI config tools missing from the
+/// saved list are appended exactly once; afterwards user deletions stick
+/// until the next bump. An explicitly emptied list is respected either way.
+fn migrate_settings(mut s: Settings) -> Settings {
+    if s.settings_version < SETTINGS_VERSION && !s.ai_config_tools.is_empty() {
+        for default in default_ai_config_tools() {
+            if !s.ai_config_tools.iter().any(|tool| tool.id == default.id) {
+                s.ai_config_tools.push(default);
+            }
+        }
+    }
+    s.settings_version = SETTINGS_VERSION;
     s
 }
 
@@ -838,11 +872,54 @@ mod tests {
             .iter()
             .map(|tool| tool.id.as_str())
             .collect();
-        assert_eq!(ids, ["claude", "codex", "opencode", "pi", "grok"]);
+        assert_eq!(
+            ids,
+            ["claude", "codex", "opencode", "pi", "grok", "antigravity-cli"]
+        );
         assert!(settings
             .ai_config_tools
             .iter()
             .all(|tool| !tool.config_dir.is_empty()));
+        assert_eq!(settings.settings_version, SETTINGS_VERSION);
+    }
+
+    #[test]
+    fn migration_backfills_missing_builtin_ai_tools_once() {
+        let saved: Settings = serde_json::from_str(
+            r#"{"ai_config_tools":[{"id":"claude","name":"Claude","config_dir":"C:\\Users\\t\\.claude"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(saved.settings_version, 0);
+        let migrated = migrate_settings(saved);
+        let ids: Vec<&str> = migrated
+            .ai_config_tools
+            .iter()
+            .map(|tool| tool.id.as_str())
+            .collect();
+        assert!(ids.contains(&"antigravity-cli"));
+        assert!(ids.contains(&"grok"));
+        assert_eq!(migrated.ai_config_tools[0].id, "claude");
+        assert_eq!(migrated.ai_config_tools[0].config_dir, r"C:\Users\t\.claude");
+        assert_eq!(migrated.settings_version, SETTINGS_VERSION);
+
+        // Once migrated, a deleted built-in stays deleted until the next bump.
+        let mut without_grok = migrated;
+        without_grok
+            .ai_config_tools
+            .retain(|tool| tool.id != "grok");
+        let migrated_again = migrate_settings(without_grok);
+        assert!(!migrated_again
+            .ai_config_tools
+            .iter()
+            .any(|tool| tool.id == "grok"));
+    }
+
+    #[test]
+    fn migration_respects_explicitly_emptied_ai_tools() {
+        let saved: Settings = serde_json::from_str(r#"{"ai_config_tools":[]}"#).unwrap();
+        let migrated = migrate_settings(saved);
+        assert!(migrated.ai_config_tools.is_empty());
+        assert_eq!(migrated.settings_version, SETTINGS_VERSION);
     }
 
     #[test]

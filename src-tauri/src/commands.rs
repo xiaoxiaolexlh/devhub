@@ -817,6 +817,10 @@ fn known_ai_config_files(tool_id: &str) -> Option<Vec<(&'static str, &'static st
             ("user-settings.json", "用户设置：API Key、子代理、Hooks 等"),
             ("workspace-trust.json", "工作区信任记录"),
         ]),
+        "antigravity-cli" => Some(vec![
+            ("settings.json", "持久化设置：仅保存与默认值不同的项"),
+            ("keybindings.json", "自定义键位绑定"),
+        ]),
         _ => None,
     }
 }
@@ -1945,7 +1949,14 @@ mod tests {
 
     #[test]
     fn known_ai_config_files_cover_builtin_tools() {
-        for id in ["claude", "codex", "opencode", "pi", "grok"] {
+        for id in [
+            "claude",
+            "codex",
+            "opencode",
+            "pi",
+            "grok",
+            "antigravity-cli",
+        ] {
             let files = known_ai_config_files(id)
                 .unwrap_or_else(|| panic!("missing known files for {id}"));
             assert!(!files.is_empty());

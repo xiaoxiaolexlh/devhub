@@ -490,6 +490,7 @@ export interface CustomTool {
 }
 
 export interface Settings {
+  settings_version: number;
   editors: Editor[];
   source_editor: string;
   conflict_strategy: ConflictStrategy;
