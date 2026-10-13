@@ -20,9 +20,9 @@ import {
 import { cn } from "@/lib/utils";
 import { useApp } from "@/stores/app";
 import { OpenWithButton } from "@/components/OpenWithButton";
+import { AppHeader } from "@/components/AppHeader";
 import {
   AlertTriangle,
-  ArrowLeft,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -36,7 +36,6 @@ import {
   Pencil,
   Plus,
   RefreshCcw,
-  Settings,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -51,7 +50,7 @@ type Notice = {
 };
 
 export function AiConfigPage({ onOpenSettings }: Props) {
-  const { settings, saveSettings, setAppMode } = useApp();
+  const { settings, saveSettings } = useApp();
   const [statuses, setStatuses] = useState<AiConfigToolStatus[]>([]);
   const [filesById, setFilesById] = useState<Map<string, AiConfigToolFile[]>>(new Map());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -231,30 +230,23 @@ export function AiConfigPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <header className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">AI 配置管理</div>
-          <div className="text-xs text-fg-muted">管理 AI 工具的全局配置目录</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void importConfig()} disabled={working}>
-            <Upload className="h-3.5 w-3.5" />
-            导入
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void exportConfig()} disabled={working}>
-            <Download className="h-3.5 w-3.5" />
-            导出
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <Settings className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </header>
+      <AppHeader
+        title="AI 配置管理"
+        subtitle="集中管理 Claude、Codex、OpenCode 等工具的全局配置目录"
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => void importConfig()} disabled={working}>
+              <Upload className="h-3.5 w-3.5" />
+              导入
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void exportConfig()} disabled={working}>
+              <Download className="h-3.5 w-3.5" />
+              导出
+            </Button>
+          </>
+        }
+      />
 
       {notice && (
         <div

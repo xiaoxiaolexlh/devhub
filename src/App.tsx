@@ -11,6 +11,8 @@ import { tauri } from "@/lib/tauri";
 import { useApp } from "@/stores/app";
 import { Loader2 } from "lucide-react";
 
+import { CommandPalette } from "@/components/CommandPalette";
+
 const SettingsDialog = lazy(() =>
   import("@/components/SettingsDialog").then((module) => ({
     default: module.SettingsDialog,
@@ -80,11 +82,23 @@ const SystemSettingsPage = lazy(() =>
 function App() {
   const { ready, init, refreshRunning, appMode } = useApp();
   const [openSettings, setOpenSettings] = useState(false);
+  const [openPalette, setOpenPalette] = useState(false);
   const workspaceRoot = workspaceRootFromUrl();
   const workspaceFile = workspaceFileFromUrl();
   const workspaceSingleFile = workspaceSingleFileFromUrl();
   const closeConfirmedRef = useRef(false);
   const closePromptActiveRef = useRef(false);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpenPalette((prev) => !prev);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (workspaceRoot) {
@@ -223,6 +237,13 @@ function App() {
           <SettingsDialog
             open={openSettings}
             onClose={() => setOpenSettings(false)}
+          />
+        )}
+        {!workspaceRoot && (
+          <CommandPalette
+            open={openPalette}
+            onOpenChange={setOpenPalette}
+            onOpenSettings={() => setOpenSettings(true)}
           />
         )}
       </Suspense>

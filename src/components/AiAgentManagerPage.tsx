@@ -9,10 +9,9 @@ import {
   type NodeEnvStatus,
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-import { useApp } from "@/stores/app";
+import { AppHeader } from "@/components/AppHeader";
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowUpCircle,
   Check,
   CheckCircle2,
@@ -20,7 +19,6 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  Settings as SettingsIcon,
   Square,
   Trash2,
   XCircle,
@@ -50,7 +48,6 @@ interface AgentTaskLog {
 }
 
 export function AiAgentManagerPage({ onOpenSettings }: Props) {
-  const { setAppMode } = useApp();
   const [nodeStatus, setNodeStatus] = useState<NodeEnvStatus | null>(null);
   const [nodeChecking, setNodeChecking] = useState(true);
   const [agents, setAgents] = useState<AiAgentStatus[]>([]);
@@ -97,12 +94,7 @@ export function AiAgentManagerPage({ onOpenSettings }: Props) {
   const checkNode = useCallback(async () => {
     setNodeChecking(true);
     try {
-      const status = await tauri.aiAgentCheckNode();
-      setNodeStatus(status);
-      if (status.available) {
-        await loadAgents();
-        void loadLatest();
-      }
+      setNodeStatus(await tauri.aiAgentCheckNode());
     } catch (e) {
       setNodeStatus({
         available: false,
@@ -112,7 +104,7 @@ export function AiAgentManagerPage({ onOpenSettings }: Props) {
     } finally {
       setNodeChecking(false);
     }
-  }, [loadAgents, loadLatest]);
+  }, []);
 
   // Restore task snapshots (e.g. after remounting the page).
   useEffect(() => {
@@ -222,6 +214,13 @@ export function AiAgentManagerPage({ onOpenSettings }: Props) {
     };
   }, [loadAgents, loadLatest]);
 
+  // Script-installed agents must be listed and manageable without Node, so
+  // the list load runs independently of the Node probe.
+  useEffect(() => {
+    void loadAgents();
+    void loadLatest();
+  }, [loadAgents, loadLatest]);
+
   useEffect(() => {
     void checkNode();
   }, [checkNode]);
@@ -232,10 +231,16 @@ export function AiAgentManagerPage({ onOpenSettings }: Props) {
     [tasks],
   );
 
+  const nodeReady = nodeStatus?.available ?? false;
+
   async function startTask(kind: "install" | "uninstall", agent: AiAgentStatus) {
     setMessage(null);
+    if (agent.source === "npm" && !nodeReady) {
+      setMessage("当前电脑没有 Node 环境，无法安装 npm 类 AI Agent");
+      return;
+    }
     if (kind === "uninstall") {
-      const ok = await confirm(`确认卸载「${agent.name}」（npm uninstall -g ${agent.npm_package}）？`, {
+      const ok = await confirm(`确认卸载「${agent.name}」（${agent.uninstall_command}）？`, {
         title: "确认卸载",
         kind: "warning",
         okLabel: "卸载",
@@ -244,7 +249,8 @@ export function AiAgentManagerPage({ onOpenSettings }: Props) {
       if (!ok) return;
     }
     try {
-      // 安装/更新固定为页面上展示的最新版本，避免 npm 走缓存的旧元数据装到旧版。
+      // 安装/更新固定为页面上展示的最新版本，避免 npm 走缓存的旧元数据装到旧版；
+      // 脚本安装的 Agent 忽略版本号，始终安装官方最新版。
       const result =
         kind === "install"
           ? await tauri.aiAgentInstall(agent.id, latest[agent.id] ?? null)
@@ -322,96 +328,92 @@ export function AiAgentManagerPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <header className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">AI Agent 管理</div>
-          <div className="text-xs text-fg-muted">检测 Node 环境，通过 npm 安装、更新和卸载 AI Agent</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {message && <span className="max-w-96 truncate text-xs text-fg-muted" title={message}>{message}</span>}
-          {nodeStatus?.available && (
+      <AppHeader
+        title="AI Agent 管理"
+        subtitle="一键安装、更新和卸载 AI Agent（npm 包或官方安装脚本）"
+        onOpenSettings={onOpenSettings}
+        badge={
+          nodeStatus?.available ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
               Node {nodeStatus.version ?? ""}
             </span>
-          )}
-          {nodeStatus?.available && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                void loadAgents();
-                void loadLatest();
-              }}
-              title="重新读取 npm 全局安装列表与最新版本"
-              disabled={agentsLoading || latestLoading}
-            >
-              {agentsLoading || latestLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              刷新
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <SettingsIcon className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </header>
-
-      {nodeChecking && !nodeStatus ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center text-fg-muted">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-          正在检测 Node 环境...
-        </div>
-      ) : nodeStatus && !nodeStatus.available ? (
-        <NoNodeScreen
-          detail={nodeStatus.error}
-          onRecheck={() => void checkNode()}
-          checking={nodeChecking}
-        />
-      ) : (
-        <main className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="mx-auto flex max-w-4xl flex-col gap-4">
-            {agents.length === 0 && !agentsLoading ? (
-              <div className="rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm text-fg-muted">
-                没有可管理的 AI Agent
-              </div>
-            ) : (
-              agents.map((agent) => {
-                const busy = isAgentBusy(agent.id);
-                const task = latestTaskByAgent.get(agent.id) ?? null;
-                return (
-                  <AgentCard
-                    key={agent.id}
-                    agent={agent}
-                    busy={busy}
-                    task={task}
-                    stopping={task ? stoppingIds.has(task.taskId) : false}
-                    latestVersion={latest[agent.id] ?? null}
-                    latestLoading={latestLoading && !(agent.id in latest)}
-                    latestError={latestErrors[agent.id] ?? null}
-                    onInstall={() => void startTask("install", agent)}
-                    onUninstall={() => void startTask("uninstall", agent)}
-                    onStopTask={stopTask}
-                    onClearTask={clearTask}
-                  />
-                );
-              })
+          ) : undefined
+        }
+        rightActions={
+          <>
+            {message && <span className="max-w-96 truncate text-xs text-fg-muted" title={message}>{message}</span>}
+            {nodeStatus?.available && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  void loadAgents();
+                  void loadLatest();
+                }}
+                title="重新读取安装状态与最新版本"
+                disabled={agentsLoading || latestLoading}
+              >
+                {agentsLoading || latestLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                刷新
+              </Button>
             )}
-          </div>
-        </main>
-      )}
+          </>
+        }
+      />
+
+      <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="mx-auto flex max-w-4xl flex-col gap-4">
+          {nodeStatus && !nodeStatus.available && (
+            <NodeMissingBanner
+              detail={nodeStatus.error}
+              onRecheck={() => void checkNode()}
+              checking={nodeChecking}
+            />
+          )}
+          {agents.length === 0 && !agentsLoading ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm text-fg-muted">
+              没有可管理的 AI Agent
+            </div>
+          ) : agents.length === 0 && agentsLoading ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm text-fg-muted">
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+              正在读取 AI Agent 列表...
+            </div>
+          ) : (
+            agents.map((agent) => {
+              const busy = isAgentBusy(agent.id);
+              const task = latestTaskByAgent.get(agent.id) ?? null;
+              return (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  busy={busy}
+                  task={task}
+                  stopping={task ? stoppingIds.has(task.taskId) : false}
+                  nodeReady={nodeReady}
+                  latestVersion={latest[agent.id] ?? null}
+                  latestLoading={latestLoading && !(agent.id in latest)}
+                  latestError={latestErrors[agent.id] ?? null}
+                  onInstall={() => void startTask("install", agent)}
+                  onUninstall={() => void startTask("uninstall", agent)}
+                  onStopTask={stopTask}
+                  onClearTask={clearTask}
+                />
+              );
+            })
+          )}
+        </div>
+      </main>
     </div>
   );
 }
 
-function NoNodeScreen({
+function NodeMissingBanner({
   detail,
   onRecheck,
   checking,
@@ -421,36 +423,37 @@ function NoNodeScreen({
   checking: boolean;
 }) {
   return (
-    <main className="flex min-h-0 flex-1 items-center justify-center p-8">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-bg-subtle p-8 text-center shadow-sm">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-xl bg-danger/10 text-danger">
-          <AlertTriangle className="h-8 w-8" />
-        </div>
-        <h2 className="mt-4 text-lg font-semibold text-fg">当前电脑没有 Node 环境</h2>
-        <p className="mt-2 text-sm leading-6 text-fg-muted">
-          AI Agent 通过 npm 全局安装，需要先安装 Node.js（建议 LTS 版本），安装完成后点击「重新检测」。
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3">
+      <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-fg">未检测到 Node 环境</p>
+        <p className="mt-0.5 text-xs leading-5 text-fg-muted">
+          npm 安装的 Agent 暂时无法安装或更新；通过官方脚本安装的 Agent 不受影响。
         </p>
         {detail && (
-          <p className="mt-2 break-all rounded bg-bg px-2 py-1.5 font-mono text-xs text-fg-subtle">
+          <p
+            className="mt-1 line-clamp-2 break-all font-mono text-xs text-fg-subtle"
+            title={detail}
+          >
             {detail}
           </p>
         )}
-        <div className="mt-6 flex items-center justify-center gap-2">
-          <Button variant="primary" size="md" onClick={onRecheck} disabled={checking}>
-            {checking ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            重新检测
-          </Button>
-          <Button variant="outline" size="md" onClick={() => void openUrl("https://nodejs.org/")}>
-            <ExternalLink className="h-4 w-4" />
-            打开 Node.js 官网
-          </Button>
-        </div>
       </div>
-    </main>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button variant="outline" size="sm" onClick={onRecheck} disabled={checking}>
+          {checking ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          重新检测
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => void openUrl("https://nodejs.org/")}>
+          <ExternalLink className="h-3.5 w-3.5" />
+          Node.js 官网
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -459,6 +462,7 @@ function AgentCard({
   busy,
   task,
   stopping,
+  nodeReady,
   latestVersion,
   latestLoading,
   latestError,
@@ -471,6 +475,7 @@ function AgentCard({
   busy: boolean;
   task: (AgentTaskLog & { taskId: string }) | null;
   stopping: boolean;
+  nodeReady: boolean;
   latestVersion: string | null;
   latestLoading: boolean;
   latestError: string | null;
@@ -484,6 +489,9 @@ function AgentCard({
     agent.installed &&
     latestVersion !== null &&
     agent.installed_version !== latestVersion;
+  // npm agents need Node; script agents install through the vendor script.
+  const needsNode = agent.source === "npm";
+  const nodeBlocked = needsNode && !nodeReady;
   return (
     <section className="rounded-xl border border-border bg-bg-subtle p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -495,10 +503,18 @@ function AgentCard({
                 <CheckCircle2 className="h-3 w-3" />
                 已安装 {agent.installed_version}
               </span>
-            ) : (
+            ) : agent.detect_ok ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-bg-muted px-2 py-0.5 text-xs font-medium text-fg-muted">
                 <XCircle className="h-3 w-3" />
                 未安装
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
+                title="npm 不可用或查询失败，无法检测安装状态"
+              >
+                <XCircle className="h-3 w-3" />
+                无法检测
               </span>
             )}
             {hasUpdate && (
@@ -510,20 +526,26 @@ function AgentCard({
           </div>
           <p className="mt-1.5 text-xs leading-5 text-fg-muted">{agent.description}</p>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-fg-subtle">
-            <span>包: {agent.npm_package}</span>
+            {agent.source === "npm" ? (
+              <span>包: {agent.npm_package}</span>
+            ) : (
+              <span>来源: 官方安装脚本</span>
+            )}
             <span>命令: {agent.command}</span>
-            <span
-              title={latestError ?? undefined}
-            >
-              最新:{" "}
-              {latestLoading
-                ? "查询中..."
-                : latestVersion
-                  ? `v${latestVersion}`
-                  : latestError
-                    ? "获取失败"
-                    : "未知"}
-            </span>
+            {agent.has_update_check ? (
+              <span title={latestError ?? undefined}>
+                最新:{" "}
+                {latestLoading
+                  ? "查询中..."
+                  : latestVersion
+                    ? `v${latestVersion}`
+                    : latestError
+                      ? "获取失败"
+                      : "未知"}
+              </span>
+            ) : (
+              <span>更新: 官方自动更新</span>
+            )}
           </div>
           <div className="mt-2 flex flex-col gap-1">
             <CommandRow
@@ -538,8 +560,8 @@ function AgentCard({
             variant="primary"
             size="sm"
             onClick={onInstall}
-            disabled={busy}
-            title={agent.install_command}
+            disabled={busy || nodeBlocked}
+            title={nodeBlocked ? "需要可用的 Node 环境才能安装" : agent.install_command}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             {installLabel}
@@ -548,7 +570,7 @@ function AgentCard({
             variant="outline"
             size="sm"
             onClick={onUninstall}
-            disabled={busy || !agent.installed}
+            disabled={busy || !agent.installed || nodeBlocked}
           >
             <Trash2 className="h-3.5 w-3.5" />
             卸载
@@ -557,7 +579,7 @@ function AgentCard({
             variant="ghost"
             size="sm"
             onClick={() => void openUrl(agent.homepage)}
-            title="打开 npm 包页面"
+            title="打开官网"
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </Button>

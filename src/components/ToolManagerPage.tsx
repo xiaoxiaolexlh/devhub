@@ -4,7 +4,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm, open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   AppWindow,
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
   Download,
@@ -16,11 +15,11 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Settings,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { AppHeader } from "@/components/AppHeader";
 import { cn } from "@/lib/utils";
 import {
   tauri,
@@ -44,7 +43,6 @@ function baseName(path: string) {
 }
 
 export function ToolManagerPage({ onOpenSettings }: Props) {
-  const { setAppMode } = useApp();
   const customTools = useApp((s) => s.settings?.custom_tools ?? []);
   const [tools, setTools] = useState<ToolListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -364,47 +362,43 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <div className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">工具管理</div>
-          <div className="text-xs text-fg-muted">下载、更新和打开常用外部工具</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {isElevated ? (
+      <AppHeader
+        title="工具管理"
+        subtitle="下载、更新和打开常用外部便携工具"
+        badge={
+          isElevated ? (
             <span className="inline-flex items-center gap-1 rounded bg-success/10 px-2 py-0.5 text-xs text-success">
               <ShieldCheck className="h-3 w-3" />
               管理员
             </span>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void restartElevated()}
-              disabled={restarting}
-              title="以管理员身份重启本应用,重启后打开需管理员的工具不再弹 UAC"
-            >
-              {restarting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <ShieldCheck className="h-3.5 w-3.5" />
-              )}
-              管理员重启
+          ) : undefined
+        }
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <>
+            {!isElevated && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void restartElevated()}
+                disabled={restarting}
+                title="以管理员身份重启本应用,重启后打开需管理员的工具不再弹 UAC"
+              >
+                {restarting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                管理员重启
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              刷新
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            刷新
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <Settings className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {notice && (
         <div

@@ -22,9 +22,10 @@ import {
   type Settings,
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
+import { EmptyState as BaseEmptyState } from "@/components/ui/EmptyState";
 import { useApp } from "@/stores/app";
+import { AppHeader } from "@/components/AppHeader";
 import {
-  ArrowLeft,
   CheckCircle2,
   ExternalLink,
   FolderOpen,
@@ -34,7 +35,6 @@ import {
   Play,
   Plus,
   QrCode,
-  Settings as SettingsIcon,
   Square,
   Terminal,
   Trash2,
@@ -70,7 +70,7 @@ interface TaskLog {
 const HTTP_READY_PATTERN = /HTTP_SERVER_READY (https?:\/\/\S+)/;
 
 export function NodeServicesPage({ onOpenSettings }: Props) {
-  const { settings, saveSettings, setAppMode } = useApp();
+  const { settings, saveSettings } = useApp();
   const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
   const [serviceInfo, setServiceInfo] = useState<Record<string, NodeServiceInfo>>({});
   const [infoLoading, setInfoLoading] = useState(false);
@@ -518,23 +518,14 @@ export function NodeServicesPage({ onOpenSettings }: Props) {
           </div>
         </div>
       )}
-      <header className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">Node 服务管理</div>
-          <div className="text-xs text-fg-muted">添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {message && <span className="text-xs text-fg-muted">{message}</span>}
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <SettingsIcon className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </header>
+      <AppHeader
+        title="Node 服务管理"
+        subtitle="添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出"
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          message ? <span className="text-xs text-fg-muted">{message}</span> : undefined
+        }
+      />
 
       <main className="grid min-h-0 flex-1 grid-cols-[320px_1fr]">
         <aside className="flex min-h-0 flex-col border-r border-border bg-bg-subtle">
@@ -575,7 +566,7 @@ export function NodeServicesPage({ onOpenSettings }: Props) {
 
         <section className="min-h-0 overflow-auto p-5">
           {!activeService ? (
-            <EmptyState text="请选择或添加一个 Node 服务文件夹" />
+            <EmptyState text="请选择或添加一个 Node 服务文件夹，支持一键执行 npm/pnpm 启动脚本并实时预览日志" onAdd={addService} />
           ) : (
             <div className="mx-auto flex max-w-5xl flex-col gap-5">
               <Panel title="服务">
@@ -929,16 +920,22 @@ function ServiceCard({
       type="button"
       onClick={() => onSelect(service.id)}
       className={cn(
-        "flex items-stretch rounded-lg border bg-bg text-left transition",
-        active ? "border-accent bg-accent/10" : "border-border hover:border-border-strong",
+        "flex items-stretch rounded-lg border bg-bg text-left transition hover:-translate-y-0.5",
+        active ? "border-accent bg-accent/10 shadow-sm" : "border-border hover:border-border-strong",
       )}
     >
       <div className="min-w-0 flex-1 rounded-lg px-2.5 py-2.5">
         <div className="flex items-center gap-2">
+          {runningCount > 0 && (
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+            </span>
+          )}
           <span className="truncate text-sm font-semibold">{service.name || "未命名服务"}</span>
           {runningCount > 0 && (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
               {runningCount} 运行中
             </span>
           )}
@@ -986,11 +983,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({ text, onAdd }: { text: string; onAdd?: () => void }) {
   return (
-    <div className="rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm text-fg-muted">
-      {text}
-    </div>
+    <BaseEmptyState
+      icon={<FolderOpen className="h-6 w-6" />}
+      title="暂无服务"
+      description={text}
+      action={
+        onAdd && (
+          <Button variant="primary" size="sm" onClick={onAdd}>
+            <Plus className="h-3.5 w-3.5" />
+            添加服务
+          </Button>
+        )
+      }
+      className="my-8"
+    />
   );
 }
 

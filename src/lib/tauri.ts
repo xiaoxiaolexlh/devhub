@@ -288,11 +288,17 @@ export interface AiAgentStatus {
   npm_package: string;
   command: string;
   homepage: string;
+  /** Distribution channel: npm global package or vendor install script. */
+  source: "npm" | "script";
+  /** False only when the npm global-list probe failed (npm missing/broken). */
+  detect_ok: boolean;
+  /** Whether a latest-version source exists for the update badge. */
+  has_update_check: boolean;
   installed: boolean;
   installed_version: string | null;
-  /** Full npm command used for install (also updates). */
+  /** Full install command shown in the UI and used for install (also updates). */
   install_command: string;
-  /** Full npm command used for uninstall. */
+  /** Full uninstall command shown in the UI and used for uninstall. */
   uninstall_command: string;
 }
 

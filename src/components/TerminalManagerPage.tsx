@@ -24,9 +24,9 @@ import {
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/stores/app";
+import { AppHeader } from "@/components/AppHeader";
 import {
   AlertTriangle,
-  ArrowLeft,
   Bot,
   Check,
   CheckCircle2,
@@ -39,7 +39,6 @@ import {
   Play,
   Plus,
   RefreshCcw,
-  Settings,
   Square,
   TerminalSquare,
   Trash2,
@@ -78,7 +77,7 @@ function loadSidebarWidth(): number {
 }
 
 export function TerminalManagerPage({ onOpenSettings }: Props) {
-  const { settings, saveSettings, setAppMode } = useApp();
+  const { settings, saveSettings } = useApp();
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | "all" | null>(null);
   const [loading, setLoading] = useState(true);
@@ -673,42 +672,35 @@ export function TerminalManagerPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <header className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold">AI 终端管理</div>
-          <div className="text-xs text-fg-muted">Windows Terminal 会话仅在本次应用运行期间跟踪</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant={envEnabled ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => {
-              setFormError(null);
-              setEnvDialogOpen(true);
-            }}
-            title="为新启动的 AI 终端注入临时环境变量"
-          >
-            <Variable className="h-3.5 w-3.5" />
-            临时变量
-            {envEnabled ? "开" : "关"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setToolListOpen(true)}>
-            <Bot className="h-3.5 w-3.5" />
-            管理工具
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => void refreshSessions()} title="刷新会话">
-            <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <Settings className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </header>
+      <AppHeader
+        title="AI 终端管理"
+        subtitle="按项目与工具管理独立 Windows Terminal 会话，支持注入临时环境变量"
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <>
+            <Button
+              variant={envEnabled ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => {
+                setFormError(null);
+                setEnvDialogOpen(true);
+              }}
+              title="为新启动的 AI 终端注入临时环境变量"
+            >
+              <Variable className="h-3.5 w-3.5" />
+              临时变量
+              {envEnabled ? "开" : "关"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setToolListOpen(true)}>
+              <Bot className="h-3.5 w-3.5" />
+              管理工具
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => void refreshSessions()} title="刷新会话">
+              <RefreshCcw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+          </>
+        }
+      />
 
       {notice && (
         <div className={cn(

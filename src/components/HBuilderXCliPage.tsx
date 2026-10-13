@@ -22,8 +22,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/Button";
+import { AppHeader } from "@/components/AppHeader";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Input } from "@/components/ui/Input";
+import { EmptyState as BaseEmptyState } from "@/components/ui/EmptyState";
 import { OpenWithButton } from "@/components/OpenWithButton";
 import { Select } from "@/components/ui/Select";
 import {
@@ -44,7 +46,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useApp } from "@/stores/app";
 import {
-  ArrowLeft,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -125,7 +126,7 @@ interface ProjectSection {
 }
 
 export function HBuilderXCliPage({ onOpenSettings }: Props) {
-  const { settings, saveSettings, setAppMode } = useApp();
+  const { settings, saveSettings } = useApp();
   const [tab, setTab] = useState<CliTab>("run");
   const [runPlatform, setRunPlatform] = useState<RunPlatform>("web");
   const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>("local-app-resource");
@@ -778,30 +779,23 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <header className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">HBuilderX CLI</div>
-          <div className="text-xs text-fg-muted">快捷运行和发行 uni-app 项目</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void importConfig()}>
-            <FileUp className="h-3.5 w-3.5" />
-            导入
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void exportConfig()}>
-            <Download className="h-3.5 w-3.5" />
-            全部导出
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <SettingsIcon className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </header>
+      <AppHeader
+        title="HBuilderX CLI"
+        subtitle="快捷运行和发行 uni-app 项目"
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => void importConfig()}>
+              <FileUp className="h-3.5 w-3.5" />
+              导入
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void exportConfig()}>
+              <Download className="h-3.5 w-3.5" />
+              全部导出
+            </Button>
+          </>
+        }
+      />
 
       <main className="grid min-h-0 flex-1 grid-cols-[320px_1fr]">
         <aside className="flex min-h-0 flex-col border-r border-border bg-bg-subtle">
@@ -956,7 +950,7 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
                     onError={setMessage}
                   />
                 ) : (
-                  <EmptyState text="请选择或添加一个项目" />
+                  <EmptyState text="请选择或添加一个项目，配置并执行 uni-app 运行或发行命令" onAdd={addProject} />
                 )}
               </>
             ) : (
@@ -1401,7 +1395,10 @@ function ProjectRunWebCard({
         <Panel title="运行结果">
           <div className="mb-3 flex items-center gap-2 text-sm">
             {running ? (
-              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
+              </span>
             ) : stopped ? (
               <Square className="h-4 w-4 text-fg-muted" />
             ) : result?.success ? (
@@ -1409,7 +1406,9 @@ function ProjectRunWebCard({
             ) : (
               <XCircle className="h-4 w-4 text-danger" />
             )}
-            <span>{running ? "运行中" : stopped ? "已停止" : result?.success ? "执行成功" : "执行失败"}</span>
+            <span className={running ? "font-medium text-accent animate-pulse" : ""}>
+              {running ? "任务运行中..." : stopped ? "已停止" : result?.success ? "执行成功" : "执行失败"}
+            </span>
             <span className="text-xs text-fg-muted">退出码: {result?.exit_code ?? "无"}</span>
             {running && (
               <Button
@@ -1791,8 +1790,23 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
   );
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-lg border border-dashed border-border px-3 py-10 text-center text-sm text-fg-muted">{text}</div>;
+function EmptyState({ text, onAdd }: { text: string; onAdd?: () => void }) {
+  return (
+    <BaseEmptyState
+      icon={<Terminal className="h-6 w-6" />}
+      title="暂无项目"
+      description={text}
+      action={
+        onAdd && (
+          <Button variant="primary" size="sm" onClick={onAdd}>
+            <Plus className="h-3.5 w-3.5" />
+            添加项目
+          </Button>
+        )
+      }
+      className="my-8"
+    />
+  );
 }
 
 function buildProjectSections(

@@ -24,7 +24,7 @@ export const DialogContent = forwardRef<
       className={cn(
         "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2",
         "rounded-lg border border-border bg-bg shadow-2xl outline-none",
-        "max-h-[85vh] flex flex-col animate-fade-in",
+        "max-h-[85vh] flex flex-col animate-scale-in",
         width,
         className,
       )}

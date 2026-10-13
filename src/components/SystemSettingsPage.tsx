@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  ArrowLeft,
   CheckCircle2,
   Folder,
   FolderCog,
@@ -10,10 +9,10 @@ import {
   MonitorOff,
   Pencil,
   RotateCcw,
-  Settings,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
+import { AppHeader } from "@/components/AppHeader";
 import { Checkbox } from "@/components/ui/Checkbox";
 import {
   Dialog,
@@ -26,7 +25,6 @@ import {
 } from "@/components/ui/Dialog";
 import { cn } from "@/lib/utils";
 import { tauri, type KnownFolder, type SetKnownFolderResult } from "@/lib/tauri";
-import { useApp } from "@/stores/app";
 
 interface Props {
   onOpenSettings: () => void;
@@ -39,7 +37,6 @@ type PendingAction =
   | { folder: KnownFolder; mode: "restore"; newPath: string };
 
 export function SystemSettingsPage({ onOpenSettings }: Props) {
-  const { setAppMode } = useApp();
   const [turningOff, setTurningOff] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -134,22 +131,11 @@ export function SystemSettingsPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <div className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">系统设置</div>
-          <div className="text-xs text-fg-muted">集中管理电脑常用设置与快捷电源操作</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <Settings className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </div>
+      <AppHeader
+        title="系统设置"
+        subtitle="集中管理电脑常用设置与快捷电源操作（一键关闭显示器、系统文件夹）"
+        onOpenSettings={onOpenSettings}
+      />
 
       {notice && (
         <div

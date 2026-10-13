@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import { tauri, type ConflictStrategy, type ProjectConfigEntry, type ProjectConfigResultItem } from "@/lib/tauri";
 import { useApp } from "@/stores/app";
 import { OpenWithButton } from "@/components/OpenWithButton";
-import { ArrowLeft, Folder, FolderOpen, Loader2, Puzzle, RefreshCcw, Settings, Trash2 } from "lucide-react";
+import { AppHeader } from "@/components/AppHeader";
+import { Folder, FolderOpen, Loader2, Puzzle, RefreshCcw, Trash2 } from "lucide-react";
 
 interface Props {
   onOpenSettings: () => void;
@@ -225,26 +226,21 @@ export function ProjectConfigSyncPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <div className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">项目配置同步</div>
-          <div className="text-xs text-fg-muted">同步项目内的编辑器配置目录</div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setAppMode("extensions")}>
+      <AppHeader
+        title="项目配置同步"
+        subtitle="把 .vscode、.windsurf、.cursor 等配置目录同步到其它项目"
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAppMode("extensions")}
+          >
             <Puzzle className="h-3.5 w-3.5" />
             扩展同步
           </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <Settings className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       <main className="flex-1 overflow-auto p-5">
         <div className="mx-auto flex max-w-6xl flex-col gap-5">

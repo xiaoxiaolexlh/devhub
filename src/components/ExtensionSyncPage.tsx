@@ -7,7 +7,9 @@ import { EditorBar } from "@/components/EditorBar";
 import { ExtensionTable } from "@/components/ExtensionTable";
 import { Button } from "@/components/ui/Button";
 import { useApp } from "@/stores/app";
-import { ArrowLeft, FolderSync } from "lucide-react";
+import { FolderSync } from "lucide-react";
+
+import { AppHeader } from "@/components/AppHeader";
 
 interface Props {
   onOpenSettings: () => void;
@@ -29,25 +31,21 @@ export function ExtensionSyncPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <div className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">扩展同步</div>
-          <div className="text-xs text-fg-muted">同步编辑器扩展目录</div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAppMode("project-configs")}
-          className="ml-auto"
-        >
-          <FolderSync className="h-3.5 w-3.5" />
-          项目配置同步
-        </Button>
-      </div>
+      <AppHeader
+        title="扩展同步"
+        subtitle="在 VS Code、Windsurf、Cursor、Trae 等编辑器间对比与同步扩展"
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAppMode("project-configs")}
+          >
+            <FolderSync className="h-3.5 w-3.5" />
+            项目配置同步
+          </Button>
+        }
+      />
       <EditorBar onOpenSettings={onOpenSettings} />
       <ExtensionTable onShowDiff={setDiffExtId} />
       <ActionBar

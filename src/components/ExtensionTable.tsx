@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useApp, type SortKey } from "@/stores/app";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Input } from "@/components/ui/Input";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { Tooltip } from "@/components/ui/Tooltip";
 import {
   Search,
@@ -66,6 +67,7 @@ export function ExtensionTable({ onShowDiff }: Props) {
     sortKey,
     sortAsc,
     setSort,
+    loading,
   } = useApp();
 
   const sourceScan = scans.find((s) => s.editor.id === sourceEditorId);
@@ -258,7 +260,35 @@ export function ExtensionTable({ onShowDiff }: Props) {
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 && (
+            {loading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-b border-border/40">
+                  <td className="px-3 py-3">
+                    <Skeleton className="h-4 w-4 rounded" />
+                  </td>
+                  <td className="px-1 py-3">
+                    <Skeleton className="h-7 w-7 rounded-md" />
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-44" />
+                      <Skeleton className="h-3 w-64" />
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <Skeleton className="h-4 w-14" />
+                  </td>
+                  <td className="px-3 py-3">
+                    <Skeleton className="h-4 w-12" />
+                  </td>
+                  {targetMaps.map((t) => (
+                    <td key={t.editor.id} className="px-3 py-3">
+                      <Skeleton className="h-5 w-14 rounded-full" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : sorted.length === 0 ? (
               <tr>
                 <td
                   colSpan={5 + targetMaps.length}
@@ -270,8 +300,8 @@ export function ExtensionTable({ onShowDiff }: Props) {
                     : "没有匹配的扩展"}
                 </td>
               </tr>
-            )}
-            {sorted.map(({ ext, states }) => {
+            ) : null}
+            {!loading && sorted.map(({ ext, states }) => {
               const checked = selectedFolders.has(ext.folder_name);
               return (
                 <tr

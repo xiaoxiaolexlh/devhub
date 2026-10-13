@@ -2,19 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
-  ArrowLeft,
   Download,
   Loader2,
   Play,
   Plus,
   RefreshCcw,
   Save,
-  Settings,
   ShieldAlert,
   Trash2,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { AppHeader } from "@/components/AppHeader";
 import { Checkbox } from "@/components/ui/Checkbox";
 import {
   Dialog,
@@ -37,7 +36,6 @@ import {
   type CleanerPathPreview,
   type CleanerProfile,
 } from "@/lib/tauri";
-import { useApp } from "@/stores/app";
 
 interface Props {
   onOpenSettings: () => void;
@@ -49,7 +47,6 @@ const EMPTY_CONFIG: CleanerConfig = { profiles: {} };
 const ACTIONS: CleanerAction[] = ["clear", "remove"];
 
 export function DirectoryCleanerPage({ onOpenSettings }: Props) {
-  const { setAppMode } = useApp();
   const [configPath, setConfigPath] = useState("");
   const [config, setConfig] = useState<CleanerConfig>(EMPTY_CONFIG);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -320,41 +317,36 @@ export function DirectoryCleanerPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg text-fg">
-      <div className="flex items-center gap-3 border-b border-border bg-bg px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setAppMode("home")}>
-          <ArrowLeft className="h-3.5 w-3.5" />
-          模式
-        </Button>
-        <div>
-          <div className="text-sm font-semibold text-fg">目录清理</div>
-          <div className="max-w-[48vw] truncate font-mono text-xs text-fg-muted">
-            {configPath || "加载配置路径..."}
-          </div>
-        </div>
-        {dirty && (
-          <span className="rounded bg-warning/10 px-2 py-0.5 text-xs text-warning">
-            未保存
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={importConfig} disabled={working}>
-            <Upload className="h-3.5 w-3.5" />
-            导入
-          </Button>
-          <Button variant="outline" size="sm" onClick={exportConfig} disabled={working}>
-            <Download className="h-3.5 w-3.5" />
-            导出
-          </Button>
-          <Button variant="primary" size="sm" onClick={saveConfig} disabled={working || !dirty}>
-            <Save className="h-3.5 w-3.5" />
-            保存
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onOpenSettings}>
-            <Settings className="h-3.5 w-3.5" />
-            设置
-          </Button>
-        </div>
-      </div>
+      <AppHeader
+        title="目录清理"
+        subtitle={
+          <span className="font-mono">{configPath || "加载配置路径..."}</span>
+        }
+        badge={
+          dirty ? (
+            <span className="rounded bg-warning/10 px-2 py-0.5 text-xs text-warning">
+              未保存
+            </span>
+          ) : undefined
+        }
+        onOpenSettings={onOpenSettings}
+        rightActions={
+          <>
+            <Button variant="outline" size="sm" onClick={importConfig} disabled={working}>
+              <Upload className="h-3.5 w-3.5" />
+              导入
+            </Button>
+            <Button variant="outline" size="sm" onClick={exportConfig} disabled={working}>
+              <Download className="h-3.5 w-3.5" />
+              导出
+            </Button>
+            <Button variant="primary" size="sm" onClick={saveConfig} disabled={working || !dirty}>
+              <Save className="h-3.5 w-3.5" />
+              保存
+            </Button>
+          </>
+        }
+      />
 
       {notice && (
         <div

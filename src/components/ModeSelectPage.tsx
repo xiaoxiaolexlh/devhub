@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/Button";
 import { useApp, type AppMode } from "@/stores/app";
-import { ArrowRight, Bot, BrainCircuit, FolderSync, MonitorCog, Package, PanelsTopLeft, Puzzle, Settings, ServerCog, TerminalSquare, Trash2 } from "lucide-react";
+import { ArrowRight, Bot, BrainCircuit, FolderSync, MonitorCog, Package, PanelsTopLeft, Puzzle, Search, Settings, ServerCog, TerminalSquare, Trash2 } from "lucide-react";
 
 interface Props {
   onOpenSettings: () => void;
@@ -19,15 +19,33 @@ export function ModeSelectPage({ onOpenSettings }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-bg text-fg">
-      <header className="flex shrink-0 items-center justify-between border-b border-border bg-bg-subtle px-6 py-4">
+      <header className="flex shrink-0 items-center justify-between border-b border-border bg-bg-subtle/80 px-6 py-3.5 backdrop-blur-sm">
         <div>
-          <h1 className="text-lg font-semibold text-fg">选择同步模式</h1>
-          <p className="text-xs text-fg-muted">根据要同步的内容进入对应工作台</p>
+          <h1 className="text-base font-semibold text-fg">选择工作台模式</h1>
+          <p className="text-xs text-fg-muted">根据工作内容进入对应模块，或按 Ctrl+K 全局搜索</p>
         </div>
-        <Button variant="ghost" size="md" onClick={onOpenSettings}>
-          <Settings className="h-4 w-4" />
-          设置
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "k", ctrlKey: true }),
+              );
+            }}
+            className="hidden items-center gap-2 rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-fg-muted shadow-sm transition hover:border-accent hover:text-fg sm:flex"
+            title="搜索所有工作台"
+          >
+            <Search className="h-3.5 w-3.5 text-fg-subtle" />
+            <span>搜索工作台...</span>
+            <kbd className="rounded bg-bg-muted px-1 py-0.5 text-[10px] text-fg-subtle">
+              Ctrl+K
+            </kbd>
+          </button>
+          <Button variant="ghost" size="md" onClick={onOpenSettings}>
+            <Settings className="h-4 w-4" />
+            设置
+          </Button>
+        </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
