@@ -5,7 +5,7 @@ use chrono::Local;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -17,6 +17,11 @@ const MAX_STORED_OUTPUT_CHARS: usize = 256 * 1024;
 /// Hard cap for one `npm view <pkg> version` probe so a dead network
 /// connection can't block the whole latest-version batch.
 const LATEST_VERSION_TIMEOUT_SECS: u64 = 20;
+
+/// Hard cap for environment probes (`node --version`, `npm ls -g --json`) so a
+/// hung npm shim, dead network or antivirus stall can't block the caller
+/// forever. Generous because npm legitimately starts slowly on some machines.
+const PROBE_TIMEOUT_SECS: u64 = 30;
 
 const NO_NODE_ERROR: &str = "当前电脑没有 Node 环境，请先安装 Node.js 后再管理 AI Agent";
 
@@ -184,20 +189,68 @@ pub struct AiAgentExitEvent {
     pub error: Option<String>,
 }
 
-/// Run a shell command text synchronously and capture its output.
-/// Windows resolves `npm` (a .cmd shim) only through cmd.exe, so all npm/node
-/// probes go through the shell wrapper like the node services runner.
+/// Run a shell command text and capture its output, killing the process tree
+/// if it outlives PROBE_TIMEOUT_SECS. Windows resolves `npm` (a .cmd shim)
+/// only through cmd.exe, so all npm/node probes go through the shell wrapper
+/// like the node services runner.
 fn capture_command(command_text: &str) -> Result<(bool, String, String), String> {
+    capture_command_with_timeout(command_text, PROBE_TIMEOUT_SECS)
+}
+
+fn capture_command_with_timeout(
+    command_text: &str,
+    timeout_secs: u64,
+) -> Result<(bool, String, String), String> {
     let mut command = build_shell_command(command_text);
     configure_hidden_process(&mut command);
-    let output = command
-        .output()
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
         .map_err(|e| format!("执行命令失败: {e}"))?;
+
+    // Drain both pipes on helper threads so a chatty child can't fill the OS
+    // pipe buffer and deadlock while we poll for exit.
+    let stdout_reader = spawn_pipe_drainer(child.stdout.take());
+    let stderr_reader = spawn_pipe_drainer(child.stderr.take());
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    // cmd.exe wraps npm/node, so the shell must be killed as a
+                    // tree; killing only cmd.exe would leave npm running.
+                    let _ = kill_process_tree(child.id());
+                    let _ = child.wait();
+                    return Err(format!(
+                        "命令执行超时（{timeout_secs} 秒）: {command_text}"
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(error) => return Err(format!("等待命令失败: {error}")),
+        }
+    };
+    let stdout = stdout_reader.join().unwrap_or_default();
+    let stderr = stderr_reader.join().unwrap_or_default();
     Ok((
-        output.status.success(),
-        decode_process_bytes(&output.stdout).trim().to_string(),
-        decode_process_bytes(&output.stderr).trim().to_string(),
+        status.success(),
+        decode_process_bytes(&stdout).trim().to_string(),
+        decode_process_bytes(&stderr).trim().to_string(),
     ))
+}
+
+fn spawn_pipe_drainer<R: Read + Send + 'static>(
+    pipe: Option<R>,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut buffer);
+        }
+        buffer
+    })
 }
 
 fn build_shell_command(command_text: &str) -> Command {
@@ -218,7 +271,7 @@ fn build_shell_command(command_text: &str) -> Command {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agent_check_node() -> NodeEnvStatus {
     match capture_command("node --version") {
         Ok((true, stdout, _)) => NodeEnvStatus {
@@ -308,7 +361,7 @@ fn sanitize_npm_version(version: Option<&str>) -> Option<String> {
     valid.then(|| version.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agent_list() -> Result<Vec<AiAgentStatus>, String> {
     let packages = npm_global_packages()?;
     Ok(agent_registry()
@@ -378,7 +431,7 @@ fn npm_latest_version(npm_package: &str) -> Result<String, String> {
 
 /// Latest published version per agent, queried in parallel. Each agent reports
 /// its own result so one failing/unknown package doesn't hide the others.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agent_latest_versions() -> Vec<AiAgentLatestVersion> {
     let mut handles = Vec::new();
     for spec in agent_registry() {
@@ -410,7 +463,7 @@ pub fn ai_agent_latest_versions() -> Vec<AiAgentLatestVersion> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agent_install(
     app: tauri::AppHandle,
     agent_id: String,
@@ -419,7 +472,7 @@ pub fn ai_agent_install(
     spawn_agent_task(app, &agent_id, "install", version.as_deref())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agent_uninstall(app: tauri::AppHandle, agent_id: String) -> AiAgentRunResult {
     spawn_agent_task(app, &agent_id, "uninstall", None)
 }
@@ -580,7 +633,7 @@ pub fn ai_agent_task_list() -> Vec<AiAgentTaskState> {
     tasks
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agent_task_stop(task_id: String) -> AiAgentStopResult {
     let pid = AGENT_TASKS
         .lock()
@@ -698,4 +751,33 @@ fn now_millis() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_command_returns_output() {
+        let (success, stdout, stderr) = capture_command("echo hello").unwrap();
+        assert!(success);
+        assert_eq!(stdout, "hello");
+        assert!(stderr.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn capture_command_kills_hanging_process_tree_on_timeout() {
+        // `ping -n 30` stays alive far past the probe timeout unless the whole
+        // cmd.exe -> ping tree gets killed.
+        let start = std::time::Instant::now();
+        let result = capture_command_with_timeout("ping -n 30 127.0.0.1", 2);
+        let elapsed = start.elapsed();
+        let error = result.unwrap_err();
+        assert!(error.contains("超时"), "unexpected error: {error}");
+        assert!(
+            elapsed < std::time::Duration::from_secs(15),
+            "timeout not enforced, took {elapsed:?}"
+        );
+    }
 }
