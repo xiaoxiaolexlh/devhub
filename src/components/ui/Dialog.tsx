@@ -22,7 +22,8 @@ export const DialogContent = forwardRef<
     <D.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2",
+        // 居中用独立 translate 属性，避免 animate-scale-in 的 transform 覆盖位移导致弹窗先偏在右下角
+        "fixed left-1/2 top-1/2 z-50 w-full [translate:-50%_-50%]",
         "rounded-lg border border-border bg-bg shadow-2xl outline-none",
         "max-h-[85vh] flex flex-col animate-scale-in",
         width,
