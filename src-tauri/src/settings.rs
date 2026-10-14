@@ -13,7 +13,7 @@ pub const APP_TRASH_DIR: &str = "devhub-trash";
 
 /// Current settings.json schema version. Bump when a release must backfill
 /// data into files saved by older builds; migrate_settings runs once per bump.
-pub const SETTINGS_VERSION: u32 = 1;
+pub const SETTINGS_VERSION: u32 = 2;
 
 /// How a path should be opened from the app.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -430,6 +430,7 @@ fn default_ai_config_tools() -> Vec<AiConfigTool> {
             "Antigravity CLI",
             home.join(".gemini").join("antigravity-cli"),
         ),
+        ("zcode", "ZCode", home.join(".zcode")),
     ]
     .into_iter()
     .map(|(id, name, path)| AiConfigTool {
@@ -874,7 +875,7 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["claude", "codex", "opencode", "pi", "grok", "antigravity-cli"]
+            ["claude", "codex", "opencode", "pi", "grok", "antigravity-cli", "zcode"]
         );
         assert!(settings
             .ai_config_tools
@@ -898,6 +899,7 @@ mod tests {
             .collect();
         assert!(ids.contains(&"antigravity-cli"));
         assert!(ids.contains(&"grok"));
+        assert!(ids.contains(&"zcode"));
         assert_eq!(migrated.ai_config_tools[0].id, "claude");
         assert_eq!(migrated.ai_config_tools[0].config_dir, r"C:\Users\t\.claude");
         assert_eq!(migrated.settings_version, SETTINGS_VERSION);

@@ -821,6 +821,14 @@ fn known_ai_config_files(tool_id: &str) -> Option<Vec<(&'static str, &'static st
             ("settings.json", "持久化设置：仅保存与默认值不同的项"),
             ("keybindings.json", "自定义键位绑定"),
         ]),
+        "zcode" => Some(vec![
+            ("v2/config.json", "全局配置：模型、提供商、界面设置"),
+            ("v2/provider_config.json", "模型提供商配置：API 密钥与端点"),
+            ("v2/setting.json", "用户设置：模型选择与提供商模式"),
+            ("v2/credentials.json", "登录凭据与 OAuth 令牌"),
+            ("cli/agents", "子代理定义目录"),
+            ("cli/plugins", "插件目录：技能、命令、MCP 服务器"),
+        ]),
         _ => None,
     }
 }
@@ -1956,6 +1964,7 @@ mod tests {
             "pi",
             "grok",
             "antigravity-cli",
+            "zcode",
         ] {
             let files = known_ai_config_files(id)
                 .unwrap_or_else(|| panic!("missing known files for {id}"));

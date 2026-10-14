@@ -15,7 +15,7 @@
 - **过滤 / 搜索 / 排序** — 仅显示「目标缺失」「目标过期」、按名称 / 版本 / 大小排序。
 - **明暗主题** — 跟随系统 / 强制亮 / 强制暗。
 - **目录清理** — 导入或编辑 `cleaner.config.json`，按 profile 预览后执行 `clear` / `remove` 永久清理。
-- **AI 配置管理** — 管理 Claude、Codex、OpenCode、Pi、Grok 和自定义工具的配置目录，可用资源管理器或内置工作区打开，并导入导出工具清单。
+- **AI 配置管理** — 管理 Claude、Codex、OpenCode、Pi、Grok、ZCode 和自定义工具的配置目录，可用资源管理器或内置工作区打开，并导入导出工具清单。
 - **AI 终端管理** — 按项目绑定 AI CLI，在独立 Windows Terminal 窗口中统一启动、切换、新开和精确关闭会话，并可按开关为新会话注入多组临时环境变量。
 - **Node 服务管理** — 添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出。
 - **系统设置** — 集中管理电脑常用设置与快捷电源操作，目前支持一键关闭显示器。
@@ -44,6 +44,7 @@
 | Pi | `%USERPROFILE%\.pi\agent` |
 | Grok | `%USERPROFILE%\.grok` |
 | Antigravity CLI | `%USERPROFILE%\.gemini\antigravity-cli` |
+| ZCode | `%USERPROFILE%\.zcode` |
 
 默认条目可以修改、删除，也可以继续添加自定义工具。导入导出只包含工具名称和配置目录路径，不会复制目录内的文件、账号或密钥。导入时按条目 ID 合并，当前机器不存在的路径会保留并可重新选择。
 
@@ -57,6 +58,7 @@
 | Pi | `settings.json`、`keybindings.json`、`mcp.json`、`models.json`、`auth.json`、`AGENTS.md`、`SYSTEM.md`、`APPEND_SYSTEM.md`、`extensions/`、`skills/`、`prompts/`、`themes/` |
 | Grok | `user-settings.json`(用户设置)、`workspace-trust.json`(工作区信任) |
 | Antigravity CLI | `settings.json`(持久化设置,仅保存与默认值不同的项)、`keybindings.json`(自定义键位绑定) |
+| ZCode | `v2/config.json`(全局配置)、`v2/provider_config.json`(提供商配置)、`v2/setting.json`(用户设置)、`v2/credentials.json`(凭据)、`cli/agents/`(子代理)、`cli/plugins/`(插件) |
 
 ## AI 终端管理
 
