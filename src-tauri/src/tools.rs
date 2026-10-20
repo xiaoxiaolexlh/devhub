@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufReader, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
@@ -221,7 +221,8 @@ fn registry() -> Vec<ToolSpec> {
             group: "system".into(),
             description: "基于 sing-box 的多平台代理客户端(自动选点、TUN 模式、订阅管理,广告免费开源),Windows x64 便携版,下载后存放在本应用数据目录,双击卡片即可打开。".into(),
             // RedirectTag: releases/latest 302 到 .../releases/tag/<tag>,
-            // 便携包文件名固定(不含版本号),用真实 tag 拼装下载地址(tag 命名变化不影响更新)
+            // 便携包文件名固定(不含版本号),用真实 tag 拼装下载地址(tag 命名变化不影响更新)。
+            // 注意: 上游从 v4.x 起 .zip 发布物实际是 tar 归档,解压按魔数自动识别 zip/tar
             download_url:
                 "https://github.com/hiddify/hiddify-app/releases/download/{tag}/Hiddify-Windows-Portable-x64.zip"
                     .into(),
@@ -736,7 +737,7 @@ async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, St
         }
     };
 
-    // 2. 流式下载 zip 到临时文件
+    // 2. 流式下载安装包到临时文件
     let tmp = std::env::temp_dir().join(format!("devhub-{tool_id}.zip"));
     let final_url = match download_with_progress(app, tool_id, &download_url, &tmp).await {
         Ok(url) => url,
@@ -1164,7 +1165,11 @@ async fn download_with_progress(
 ) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
-        .timeout(std::time::Duration::from_secs(180))
+        // 大文件(Hiddify 便携包 ~112MB)慢速链路下 180s 总超时会中途掐断,
+        // 卡死检测交给读超时,总超时只作兜底
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(1800))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
     let resp = client
@@ -1218,6 +1223,41 @@ fn install_raw_exe(tmp_path: &Path, exe_entry: &str, dest_dir: &Path) -> Result<
     Ok(dest)
 }
 
+/// 安装包实际格式。发布物扩展名可能与内容不符(Hiddify v4.x 起名为 .zip 实为 tar),
+/// 以文件头魔数为准选择解压器。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PkgFormat {
+    Zip,
+    Tar,
+}
+
+/// 按文件头魔数识别安装包格式:zip 为 `PK\x03\x04`(空包/分卷为 `PK\x05\x06`/`PK\x07\x08`),
+/// tar 为偏移 257 处的 `ustar`;都不匹配时报错并附文件头十六进制,便于区分下载不完整与上游换格式。
+fn detect_pkg_format(path: &Path) -> Result<PkgFormat, String> {
+    let mut head = Vec::with_capacity(262);
+    fs::File::open(path)
+        .and_then(|f| f.take(262).read_to_end(&mut head))
+        .map_err(|e| format!("读取安装包文件头失败: {e}"))?;
+    if head.starts_with(b"PK\x03\x04")
+        || head.starts_with(b"PK\x05\x06")
+        || head.starts_with(b"PK\x07\x08")
+    {
+        return Ok(PkgFormat::Zip);
+    }
+    if head.len() >= 262 && head[257..262] == *b"ustar" {
+        return Ok(PkgFormat::Tar);
+    }
+    let hex = head
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Err(format!(
+        "安装包不是有效的 zip 或 tar 格式(文件头前 8 字节: {hex}),可能下载不完整或上游发布物格式已变更"
+    ))
+}
+
 /// 解压指定条目;返回主 exe 路径。
 /// 条目含 `/` 时按相对路径落地(如 WizTree 的 locale/zh_CHS/LC_MESSAGES/default.mo),
 /// 否则沿用 basename 拍平写入工具目录。
@@ -1228,6 +1268,13 @@ fn extract_entries(
     dest_dir: &Path,
 ) -> Result<PathBuf, String> {
     fs::create_dir_all(dest_dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    // 按条目解压只实现了 zip;现注册表中该路径的发布物均为真 zip(tar 误标仅 Hiddify 使用,走整包解压)
+    match detect_pkg_format(zip_path)? {
+        PkgFormat::Zip => {}
+        PkgFormat::Tar => {
+            return Err("安装包是 tar 归档,该工具的按条目解压配置暂不支持 tar".into());
+        }
+    }
     let file = fs::File::open(zip_path).map_err(|e| format!("打开 zip 失败: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(BufReader::new(file)).map_err(|e| format!("打开 zip 失败: {e}"))?;
@@ -1277,15 +1324,24 @@ fn extract_entries(
     exe_path.ok_or_else(|| format!("压缩包内未找到 {exe_entry}"))
 }
 
-/// 整包解压到工具目录:所有条目共享同一个顶层目录时剥离它,exe 按 basename 匹配定位。
+/// 整包解压到工具目录:按文件头魔数识别 zip/tar 后分别解压。
+/// 所有条目共享同一个顶层目录时剥离它,exe 按 basename 匹配定位。
 /// 解压前清空工具目录,避免更新后残留旧文件;目录被占用(工具正在运行)时明确报错。
-fn extract_all_entries(zip_path: &Path, exe_entry: &str, dest_dir: &Path) -> Result<PathBuf, String> {
+fn extract_all_entries(pkg_path: &Path, exe_entry: &str, dest_dir: &Path) -> Result<PathBuf, String> {
     if dest_dir.exists() {
         fs::remove_dir_all(dest_dir).map_err(|e| {
             format!("清空工具目录失败(若该工具正在运行,请先关闭后重试): {e}")
         })?;
     }
     fs::create_dir_all(dest_dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    match detect_pkg_format(pkg_path)? {
+        PkgFormat::Zip => extract_all_zip(pkg_path, exe_entry, dest_dir),
+        PkgFormat::Tar => extract_all_tar(pkg_path, exe_entry, dest_dir),
+    }
+}
+
+/// zip 整包解压(顶层目录剥离逻辑与 tar 共用)。
+fn extract_all_zip(zip_path: &Path, exe_entry: &str, dest_dir: &Path) -> Result<PathBuf, String> {
     let file = fs::File::open(zip_path).map_err(|e| format!("打开 zip 失败: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(BufReader::new(file)).map_err(|e| format!("打开 zip 失败: {e}"))?;
@@ -1328,6 +1384,73 @@ fn extract_all_entries(zip_path: &Path, exe_entry: &str, dest_dir: &Path) -> Res
     }
 
     exe_path.ok_or_else(|| format!("压缩包内未找到 {exe_entry}"))
+}
+
+/// tar 归档整包解压,安全校验与顶层目录剥离复用 zip 的同一套逻辑。
+/// tar 是流式格式,先扫一遍条目名算出需剥离的顶层目录数,再重开文件逐条目落地。
+fn extract_all_tar(tar_path: &Path, exe_entry: &str, dest_dir: &Path) -> Result<PathBuf, String> {
+    let names: Vec<String> = {
+        let file = fs::File::open(tar_path).map_err(|e| format!("打开 tar 包失败: {e}"))?;
+        let mut archive = tar::Archive::new(BufReader::new(file));
+        let mut names = Vec::new();
+        for entry in archive
+            .entries()
+            .map_err(|e| format!("读取 tar 包失败: {e}"))?
+        {
+            let entry = entry.map_err(|e| format!("读取 tar 包条目失败: {e}"))?;
+            match entry.header().entry_type() {
+                tar::EntryType::Regular | tar::EntryType::Directory => {}
+                // 链接类条目可指向包外路径,直接拒绝安装
+                other => {
+                    return Err(format!("tar 包内包含不支持的特殊条目({other:?}),已中止安装"));
+                }
+            }
+            names.push(tar_entry_name(&entry));
+        }
+        names
+    };
+    let rels: Vec<Vec<String>> = names
+        .iter()
+        .filter_map(|name| safe_zip_components(name))
+        .collect();
+    let strip = strip_common_top_dir(&rels.iter().map(|c| c.as_slice()).collect::<Vec<_>>());
+
+    let file = fs::File::open(tar_path).map_err(|e| format!("打开 tar 包失败: {e}"))?;
+    let mut archive = tar::Archive::new(BufReader::new(file));
+    let mut exe_path: Option<PathBuf> = None;
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("读取 tar 包失败: {e}"))?
+    {
+        let mut entry = entry.map_err(|e| format!("读取 tar 包条目失败: {e}"))?;
+        if entry.header().entry_type() == tar::EntryType::Directory {
+            continue;
+        }
+        let name = tar_entry_name(&entry);
+        let Some(comps) = safe_zip_components(&name) else {
+            continue;
+        };
+        if comps.len() <= strip {
+            continue;
+        }
+        let dest = dest_dir.join(comps[strip..].join("/"));
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+        entry.unpack(&dest).map_err(|e| format!("解压失败: {e}"))?;
+        if matches_entry(comps.last().map(String::as_str).unwrap_or_default(), exe_entry) {
+            exe_path = Some(dest);
+        }
+    }
+
+    exe_path.ok_or_else(|| format!("压缩包内未找到 {exe_entry}"))
+}
+
+fn tar_entry_name<R: Read>(entry: &tar::Entry<'_, R>) -> String {
+    entry
+        .path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// zip 条目名 → 安全相对路径组件;绝对路径、含 `..` 或盘符/冒号的组件拒绝,空组件跳过。
@@ -2127,6 +2250,90 @@ mod tests {
         assert_eq!(fs::read_to_string(&mo).unwrap(), "zh");
         assert!(!dest.join("default.mo").exists());
         assert!(dest.join("license.txt").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn extract_all_entries_accepts_tar_mislabeled_as_zip() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("tools-tests")
+            .join("extract-all-tar");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        // 复刻 Hiddify v4.x 场景: tar 归档被上游命名为 .zip 发布
+        let pkg_path = root.join("Hiddify-Windows-Portable-x64.zip");
+        {
+            let file = fs::File::create(&pkg_path).unwrap();
+            let mut builder = tar::Builder::new(file);
+            for (name, body) in [
+                ("Hiddify/Hiddify.exe", "exe"),
+                ("Hiddify/flutter_windows.dll", "core"),
+                ("Hiddify/data/flutter_assets/AssetManifest.json", "assets"),
+            ] {
+                let body = body.as_bytes();
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o755);
+                header.set_cksum();
+                builder.append_data(&mut header, name, body).unwrap();
+            }
+            builder.finish().unwrap();
+        }
+
+        let dest = root.join("install");
+        let exe = extract_all_entries(&pkg_path, "Hiddify.exe", &dest).unwrap();
+
+        assert_eq!(exe, dest.join("Hiddify.exe"));
+        assert_eq!(fs::read_to_string(dest.join("Hiddify.exe")).unwrap(), "exe");
+        assert!(dest.join("flutter_windows.dll").exists());
+        assert_eq!(
+            fs::read_to_string(
+                dest.join("data").join("flutter_assets").join("AssetManifest.json")
+            )
+            .unwrap(),
+            "assets"
+        );
+        // 顶层目录被剥离,不应出现嵌套目录
+        assert!(!dest.join("Hiddify").exists());
+
+        // 二次安装(模拟更新):旧目录被清空后重写
+        fs::write(dest.join("stale.txt"), "old").unwrap();
+        let exe2 = extract_all_entries(&pkg_path, "Hiddify.exe", &dest).unwrap();
+        assert_eq!(exe2, dest.join("Hiddify.exe"));
+        assert!(!dest.join("stale.txt").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn detect_pkg_format_by_magic() {
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("tools-tests")
+            .join("detect-format");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let zip_path = root.join("a.zip");
+        fs::write(&zip_path, [0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]).unwrap();
+        assert_eq!(detect_pkg_format(&zip_path).unwrap(), PkgFormat::Zip);
+
+        let tar_path = root.join("b.tar");
+        let mut head = vec![0u8; 512];
+        head[257..262].copy_from_slice(b"ustar");
+        fs::write(&tar_path, head).unwrap();
+        assert_eq!(detect_pkg_format(&tar_path).unwrap(), PkgFormat::Tar);
+
+        // 既非 zip 也非 tar(如下载到的 HTML 错误页)应报错并附文件头
+        let html_path = root.join("c.zip");
+        fs::write(&html_path, b"<html>Not Found</html>whole lot more than 262 bytes to be safe........").unwrap();
+        let err = detect_pkg_format(&html_path).unwrap_err();
+        assert!(err.contains("不是有效的 zip 或 tar"), "{err}");
 
         let _ = fs::remove_dir_all(&root);
     }
