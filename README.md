@@ -19,7 +19,7 @@
 - **AI 终端管理** — 按项目绑定 AI CLI，在独立 Windows Terminal 窗口中统一启动、切换、新开和精确关闭会话，并可按开关为新会话注入多组临时环境变量。
 - **Node 服务管理** — 添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出。
 - **系统设置** — 集中管理电脑常用设置与快捷电源操作，目前支持一键关闭显示器。
-- **工具管理** — 内置工具注册表，一键下载官方便携版、检查更新并直接打开（Geek Uninstaller、Everything、GoNavi、DBX、WizTree、CC Switch、Notepad--），并按「系统工具 / 数据库工具 / AI 工具 / 文本编辑器」分组筛选。
+- **工具管理** — 内置工具注册表，一键下载官方便携版、检查更新并直接打开（Geek Uninstaller、Everything、GoNavi、DBX、WizTree、Hiddify、CC Switch、Magpie、Notepad--），并按「系统工具 / 数据库工具 / AI 工具 / 文本编辑器」分组筛选。
 
 ## 默认扩展目录
 
@@ -113,6 +113,7 @@
 | GoNavi | 高性能多数据源数据库客户端 |
 | DBX | 轻量跨平台数据库客户端（90+ 数据源，内置 AI/MCP） |
 | WizTree | 极速磁盘空间分析（直接读取 NTFS 索引） |
+| Hiddify | 基于 sing-box 的多平台代理客户端（自动选点、TUN 模式、订阅管理，免费开源） |
 | CC Switch | Claude Code / Codex 等 AI CLI 的供应商与配置切换 |
 | Magpie | AI 代理网关，将 Claude Code、Codex、Gemini CLI 等代理路由到任意模型/供应商（协议互转、多 key 轮换、自动故障转移） |
 | Notepad-- | 轻量开源文本编辑器（类 Notepad++，支持多标签、列编辑、Lua 插件） |

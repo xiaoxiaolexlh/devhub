@@ -216,6 +216,26 @@ fn registry() -> Vec<ToolSpec> {
             homepage: "https://github.com/cxasm/notepad--".into(),
         },
         ToolSpec {
+            id: "hiddify".into(),
+            name: "Hiddify".into(),
+            group: "system".into(),
+            description: "基于 sing-box 的多平台代理客户端(自动选点、TUN 模式、订阅管理,广告免费开源),Windows x64 便携版,下载后存放在本应用数据目录,双击卡片即可打开。".into(),
+            // RedirectTag: releases/latest 302 到 .../releases/tag/<tag>,
+            // 便携包文件名固定(不含版本号),用真实 tag 拼装下载地址(tag 命名变化不影响更新)
+            download_url:
+                "https://github.com/hiddify/hiddify-app/releases/download/{tag}/Hiddify-Windows-Portable-x64.zip"
+                    .into(),
+            update_url: "https://github.com/hiddify/hiddify-app/releases/latest".into(),
+            fallback_page_url: String::new(),
+            version_source: VersionSource::RedirectTag,
+            exe_entry: "Hiddify.exe".into(),
+            // Flutter 应用,运行库/资源/插件不可缺,整包解压(单层顶层目录会被自动剥离)
+            extra_entries: vec![],
+            extract_all: true,
+            raw_exe: false,
+            homepage: "https://hiddify.com".into(),
+        },
+        ToolSpec {
             id: "magpie".into(),
             name: "Magpie".into(),
             group: "ai".into(),
@@ -1914,6 +1934,24 @@ mod tests {
     }
 
     #[test]
+    fn registry_includes_hiddify_portable() {
+        let hf = find_spec("hiddify").unwrap();
+        assert_eq!(hf.version_source, VersionSource::RedirectTag);
+        assert_eq!(hf.exe_entry, "Hiddify.exe");
+        assert!(hf.extract_all);
+        assert!(!hf.raw_exe);
+        assert!(hf.extra_entries.is_empty());
+        // 便携包文件名固定,用真实 tag 拼装下载地址
+        assert!(hf.download_url.contains("/releases/download/{tag}/"));
+        assert!(hf.download_url.ends_with("Hiddify-Windows-Portable-x64.zip"));
+        assert!(hf.update_url.ends_with("/releases/latest"));
+        assert_eq!(
+            expand_version_template(&hf.download_url, "4.1.1", "v4.1.1").unwrap(),
+            "https://github.com/hiddify/hiddify-app/releases/download/v4.1.1/Hiddify-Windows-Portable-x64.zip"
+        );
+    }
+
+    #[test]
     fn registry_includes_magpie_raw_exe() {
         let mp = find_spec("magpie").unwrap();
         assert_eq!(mp.version_source, VersionSource::RedirectTag);
@@ -1945,6 +1983,7 @@ mod tests {
             ("geek", "system"),
             ("everything", "system"),
             ("wiztree", "system"),
+            ("hiddify", "system"),
             ("gonavi", "database"),
             ("dbx", "database"),
             ("cc-switch", "ai"),
