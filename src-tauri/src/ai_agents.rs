@@ -140,11 +140,20 @@ fn agent_registry() -> Vec<AiAgentSpec> {
         ),
         npm_agent(
             "opencode",
-            "OpenCode",
-            "开源命令行 AI 编程助手，通过 npm 全局安装后使用 opencode 命令。",
+            "OpenCode 1",
+            "经典版 OpenCode（1.x），通过 npm 全局安装后使用 opencode 命令；与 OpenCode 2 命令同名，后安装的一方会接管 opencode 命令。",
             "opencode-ai",
             "opencode",
             "https://www.npmjs.com/package/opencode-ai",
+            "",
+        ),
+        npm_agent(
+            "opencode-v2",
+            "OpenCode 2",
+            "全新重构的 OpenCode（2.x），新增桌面端与 Web 形态，通过 npm 全局安装后使用 opencode 命令；与 OpenCode 1 命令同名，后安装的一方会接管 opencode 命令。",
+            "@opencode/cli",
+            "opencode",
+            "https://www.npmjs.com/package/@opencode/cli",
             "",
         ),
         npm_agent(
@@ -1068,6 +1077,23 @@ mod tests {
         }
         let claude = find_agent_spec("claude-code").unwrap();
         assert!(matches!(claude.source, AgentSource::Npm));
+    }
+
+    #[test]
+    fn opencode_v1_and_v2_coexist_in_registry() {
+        let v1 = find_agent_spec("opencode").unwrap();
+        let v2 = find_agent_spec("opencode-v2").unwrap();
+        assert!(matches!(v1.source, AgentSource::Npm));
+        assert!(matches!(v2.source, AgentSource::Npm));
+        assert_eq!(v1.npm_package, "opencode-ai");
+        assert_eq!(v2.npm_package, "@opencode/cli");
+        assert_eq!(v1.command, "opencode");
+        assert_eq!(v2.command, "opencode");
+        assert_ne!(v1.id, v2.id);
+        assert_eq!(
+            agent_command_text(&v2, "install", Some("2.1.2")),
+            "npm install -g @opencode/cli@2.1.2 --prefer-online"
+        );
     }
 
     #[test]
