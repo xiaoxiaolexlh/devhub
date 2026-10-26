@@ -6,6 +6,9 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 
+# Generated Windows Explorer extension and sparse package
+/resources/explorer/
+
 # Updater signing keys (never commit)
 /tauri.key
 /tauri.key.pub

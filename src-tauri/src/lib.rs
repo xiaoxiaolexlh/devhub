@@ -2,6 +2,7 @@ mod ai_agents;
 mod cleaner;
 mod commands;
 mod editors;
+mod explorer_menu;
 mod manifest;
 mod node_services;
 mod scanner;
@@ -119,6 +120,8 @@ pub fn run() {
             tool_restart_elevated,
             custom_tool_open,
             custom_tool_open_dir,
+            explorer_menu::explorer_menu_status,
+            explorer_menu::explorer_menu_set_enabled,
             system_turn_off_display,
             system_list_known_folders,
             system_set_known_folder,

@@ -11,6 +11,12 @@ export interface Editor {
 
 export type OpenMethodKind = "explorer" | "workspace" | "external_app";
 
+export interface ExplorerMenuStatus {
+  supported: boolean;
+  available: boolean;
+  installed: boolean;
+}
+
 export interface OpenMethod {
   id: string;
   name: string;
@@ -833,6 +839,9 @@ export const tauri = {
   customToolOpenDir: (exePath: string) =>
     invoke<void>("custom_tool_open_dir", { exePath }),
   systemTurnOffDisplay: () => invoke<void>("system_turn_off_display"),
+  explorerMenuStatus: () => invoke<ExplorerMenuStatus>("explorer_menu_status"),
+  explorerMenuSetEnabled: (enabled: boolean) =>
+    invoke<ExplorerMenuStatus>("explorer_menu_set_enabled", { enabled }),
   systemListKnownFolders: () =>
     invoke<KnownFolder[]>("system_list_known_folders"),
   systemSetKnownFolder: (id: string, newPath: string, moveFiles: boolean) =>
