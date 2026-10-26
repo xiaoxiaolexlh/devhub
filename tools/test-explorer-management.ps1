@@ -5,8 +5,10 @@ $fixture = Join-Path $root 'src-tauri\target\explorer\management-fixture'
 $resources = Join-Path $fixture 'resources\explorer'
 New-Item -ItemType Directory -Force -Path $resources | Out-Null
 Set-Content -LiteralPath (Join-Path $fixture 'devhub.exe') -Value 'test fixture only'
-foreach ($name in @('manage.ps1', 'DevHub.ContextMenu.msix', 'devhub-explorer.dll')) {
+foreach ($name in @('manage.ps1', 'DevHub.ContextMenu.msix', 'DevHub.ContextMenu.cer', 'devhub-explorer.dll')) {
     $source = if ($name -eq 'manage.ps1') { Join-Path $root 'src-tauri\explorer\manage.ps1' } else { Join-Path $root "src-tauri\resources\explorer\$name" }
+    # A supplied production-signed package may not need a bundled public certificate.
+    if ($name -eq 'DevHub.ContextMenu.cer' -and -not (Test-Path -LiteralPath $source)) { continue }
     Copy-Item -LiteralPath $source -Destination $resources -Force
 }
 $manage = Join-Path $resources 'manage.ps1'
@@ -16,6 +18,16 @@ $global:DevHubExplorerTestState.devhubPackage = [pscustomobject]@{ Name = 'DevHu
 $global:DevHubExplorerTestState.registeredPackages = @($global:DevHubExplorerTestState.foreignPackage)
 $global:DevHubExplorerTestState.addCalls = 0
 $global:DevHubExplorerTestState.removeCalls = 0
+$global:DevHubExplorerTestState.signatureStatus = 'Valid'
+$global:DevHubExplorerTestState.signatureMessage = 'Mock signature result.'
+$global:DevHubExplorerTestState.signatureCalls = 0
+
+function Get-AuthenticodeSignature {
+    param([string]$LiteralPath)
+    if ($LiteralPath -ne (Join-Path $resources 'DevHub.ContextMenu.msix')) { throw 'Unexpected signature query.' }
+    $global:DevHubExplorerTestState.signatureCalls++
+    [pscustomobject]@{ Status = $global:DevHubExplorerTestState.signatureStatus; StatusMessage = $global:DevHubExplorerTestState.signatureMessage }
+}
 
 function Get-AppxPackage {
     param([string]$Name)
@@ -25,7 +37,7 @@ function Get-AppxPackage {
 }
 function Add-AppxPackage {
     param([string]$Path, [string]$ExternalLocation, [switch]$AllowUnsigned, [string]$ErrorAction)
-    if ($ExternalLocation -ne $fixture -or -not $AllowUnsigned -or
+    if ($ExternalLocation -ne $fixture -or $AllowUnsigned -or
         $Path -ne (Join-Path $resources 'DevHub.ContextMenu.msix') -or $ErrorAction -ne 'Stop') {
         throw 'Unexpected install arguments.'
     }
@@ -47,13 +59,43 @@ function Assert([bool]$condition, [string]$description) {
 $status = (& $manage -Action status -AppDirectory $fixture) | ConvertFrom-Json
 Assert (-not $status.installed -and $status.available) 'initial status'
 Assert ($global:DevHubExplorerTestState.addCalls -eq 0 -and $global:DevHubExplorerTestState.removeCalls -eq 0) 'status must be read-only'
+Assert ($global:DevHubExplorerTestState.signatureCalls -eq 0) 'status must not validate fixture signatures'
 $status = (& $manage -Action install -AppDirectory $fixture) | ConvertFrom-Json
 Assert ($status.installed -and $global:DevHubExplorerTestState.addCalls -eq 1) 'install'
 $status = (& $manage -Action install -AppDirectory ('\\?\' + $fixture)) | ConvertFrom-Json
 Assert ($status.installed -and $global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 're-register with normalized Appx external location'
+$global:DevHubExplorerTestState.signatureStatus = 'NotTrusted'
+$previousExitCode = $LASTEXITCODE
+& $manage -Action install -AppDirectory $fixture
+Assert ($LASTEXITCODE -eq 1) 'untrusted certificate must fail'
+Assert ($global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 'untrusted certificate must preserve the existing menu'
+$LASTEXITCODE = $previousExitCode
+$global:DevHubExplorerTestState.signatureStatus = 'UnknownError'
+# Exercise the real Windows mapping of CERT_E_UNTRUSTEDROOT as UnknownError.
+$global:DevHubExplorerTestState.signatureMessage = [ComponentModel.Win32Exception]::new(-2146762487).Message
+& $manage -Action install -AppDirectory $fixture
+Assert ($LASTEXITCODE -eq 1) 'untrusted root must fail even when PowerShell reports UnknownError'
+Assert ($global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 'untrusted root must preserve the existing menu'
+$LASTEXITCODE = $previousExitCode
+$global:DevHubExplorerTestState.signatureStatus = 'HashMismatch'
+$global:DevHubExplorerTestState.signatureMessage = 'Mock signature result.'
+& $manage -Action install -AppDirectory $fixture
+Assert ($LASTEXITCODE -eq 1) 'tampered package must fail'
+Assert ($global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 'tampered package must preserve the existing menu'
+$LASTEXITCODE = $previousExitCode
+$global:DevHubExplorerTestState.signatureStatus = 'Valid'
+
+# Remove only the signature in the copied test archive, never in build resources.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [IO.Compression.ZipFile]::Open((Join-Path $resources 'DevHub.ContextMenu.msix'), [IO.Compression.ZipArchiveMode]::Update)
+try { $zip.GetEntry('AppxSignature.p7x').Delete() } finally { $zip.Dispose() }
+& $manage -Action install -AppDirectory $fixture
+Assert ($LASTEXITCODE -eq 1) 'unsigned package must fail before Appx operations'
+Assert ($global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 'unsigned package must preserve the existing menu'
+$LASTEXITCODE = $previousExitCode
 $status = (& $manage -Action uninstall -AppDirectory $fixture) | ConvertFrom-Json
 Assert (-not $status.installed -and $global:DevHubExplorerTestState.removeCalls -eq 2) 'uninstall'
 $status = (& $manage -Action uninstall -AppDirectory $fixture) | ConvertFrom-Json
 Assert (-not $status.installed -and $global:DevHubExplorerTestState.removeCalls -eq 2) 'idempotent uninstall'
 Assert ($global:DevHubExplorerTestState.registeredPackages.Count -eq 1 -and $global:DevHubExplorerTestState.registeredPackages[0].Name -eq 'Another.App') 'foreign package preserved'
-Write-Output 'Explorer management passed: status/install/re-register/uninstall, exact package scope; all Appx operations mocked.'
+Write-Output 'Explorer management passed: signed install/re-register/uninstall, unsigned/untrusted/tampered rejection before removal, exact package scope; all Appx operations mocked.'

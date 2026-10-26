@@ -36,21 +36,37 @@ try {
     if ($Action -eq 'install') {
         if (-not $supported) { throw 'This menu requires Windows 11 x64.' }
         if (-not $available) { throw 'Explorer extension resources or devhub.exe are missing. Rebuild/reinstall DevHub.' }
-        # Read the publisher so a signed production package never uses AllowUnsigned.
+        # Validate before removing an existing menu. Unsigned COM activation is
+        # rejected for normal users (0x80073D2B); AllowUnsigned is not a bypass.
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip = [IO.Compression.ZipFile]::OpenRead($packagePath)
         try {
             $reader = [IO.StreamReader]::new($zip.GetEntry('AppxManifest.xml').Open())
             try { [xml]$manifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
-            $unsigned = $manifest.Package.Identity.Publisher -match 'OID\.2\.25\.311729368913984317654407730594956997722=1'
+            if ($manifest.Package.Identity.Name -ne $packageName) { throw 'Unexpected Explorer package identity.' }
+            if (-not $zip.GetEntry('AppxSignature.p7x') -or $manifest.Package.Identity.Publisher -match 'OID\.2\.25\.') {
+                throw 'The Explorer menu package is unsigned. Windows rejects executable activation for normal users (0x80073D2B). Rebuild/reinstall DevHub with a signed menu package.'
+            }
         } finally { $zip.Dispose() }
+        # Use this host's built-in module even when launched from PowerShell 7,
+        # whose inherited PSModulePath may otherwise load an incompatible module.
+        Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security') -ErrorAction Stop
+        $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
+        if ($signature.Status -ne 'Valid') {
+            $certificatePath = Join-Path $resourceDirectory 'DevHub.ContextMenu.cer'
+            $untrustedRootMessage = [ComponentModel.Win32Exception]::new(-2146762487).Message.Trim()
+            $untrustedRoot = $signature.Status -eq 'UnknownError' -and $signature.StatusMessage.Trim() -eq $untrustedRootMessage
+            if (($signature.Status -eq 'NotTrusted' -or $untrustedRoot) -and (Test-Path -LiteralPath $certificatePath -PathType Leaf)) {
+                throw "The Explorer menu signing certificate is not trusted. Ask an administrator to trust the public certificate in LocalMachine\TrustedPeople, then retry: $certificatePath"
+            }
+            throw "Explorer menu package signature validation failed ($($signature.Status)): $($signature.StatusMessage)"
+        }
         # The same sparse package version may have a different external location
         # (portable app moved, or switching from development to an installed app).
         foreach ($package in $packages) {
             Remove-AppxPackage -Package $package.PackageFullName -ErrorAction Stop
         }
         $options = @{ Path = $packagePath; ExternalLocation = $AppDirectory; ErrorAction = 'Stop' }
-        if ($unsigned) { $options.AllowUnsigned = $true }
         Add-AppxPackage @options
     } elseif ($Action -eq 'uninstall') {
         foreach ($package in $packages) {

@@ -56,8 +56,31 @@ if (process.argv.includes("--test")) {
 
 const config = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
 const version = config.version.split(".").slice(0, 3).concat("0").join(".");
-const publisher = process.env.DEVHUB_EXPLORER_PUBLISHER ||
-  "CN=DevHub, OID.2.25.311729368913984317654407730594956997722=1";
+const powershell = join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+const signedPackage = process.env.DEVHUB_EXPLORER_SIGNED_PACKAGE;
+const certificateDir = join(output, "signing");
+const publicCertificate = join(resources, "DevHub.ContextMenu.cer");
+let certificate;
+let publisher = process.env.DEVHUB_EXPLORER_PUBLISHER;
+if (!signedPackage) {
+  mkdirSync(certificateDir, { recursive: true });
+  certificate = process.env.DEVHUB_EXPLORER_CERTIFICATE
+    ? resolve(process.env.DEVHUB_EXPLORER_CERTIFICATE)
+    : join(certificateDir, "devhub-explorer-test.pfx");
+  const certificateArgs = ["-NoProfile", "-NonInteractive", "-File",
+    join(root, "tools", "explorer-certificate.ps1"), "-CertificatePath", certificate,
+    "-PublicCertificatePath", publicCertificate];
+  if (!process.env.DEVHUB_EXPLORER_CERTIFICATE) certificateArgs.push("-CreateTestCertificate");
+  const subject = execFileSync("pwsh.exe", certificateArgs,
+    { cwd: output, env, encoding: "utf8", windowsHide: true }).trim();
+  if (publisher && publisher !== subject) throw new Error("DEVHUB_EXPLORER_PUBLISHER must match the signing certificate subject.");
+  publisher = subject;
+} else {
+  // Do not bundle a stale development certificate with a supplied signed package.
+  if (existsSync(publicCertificate)) unlinkSync(publicCertificate);
+  publisher ||= "CN=DevHub";
+}
+if (/OID\.2\.25\./i.test(publisher)) throw new Error("Explorer COM activation requires a signed package; remove the unsigned publisher OID.");
 const xmlEscape = value => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
 const manifest = readFileSync(join(source, "AppxManifest.xml.in"), "utf8")
   .replace("@VERSION@", version).replace("@PUBLISHER@", xmlEscape(publisher));
@@ -68,15 +91,27 @@ for (const name of ["StoreLogo.png", "Square150x150Logo.png", "Square44x44Logo.p
   copyFileSync(join(root, "src-tauri", "icons", name), join(packageDir, "Assets", name));
 }
 const packageOutput = join(resources, "DevHub.ContextMenu.msix");
-if (process.env.DEVHUB_EXPLORER_SIGNED_PACKAGE) {
-  const signedPackage = resolve(process.env.DEVHUB_EXPLORER_SIGNED_PACKAGE);
-  run(join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+if (signedPackage) {
+  const signedPackagePath = resolve(signedPackage);
+  run(powershell,
     ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-      join(root, "tools", "verify-explorer-package.ps1"), "-PackagePath", signedPackage, "-ExpectedVersion", version]);
-  if (signedPackage.toLowerCase() !== packageOutput.toLowerCase()) copyFileSync(signedPackage, packageOutput);
+      join(root, "tools", "verify-explorer-package.ps1"), "-PackagePath", signedPackagePath, "-ExpectedVersion", version]);
+  if (signedPackagePath.toLowerCase() !== packageOutput.toLowerCase()) copyFileSync(signedPackagePath, packageOutput);
 } else {
   // /nv permits external executable/DLL references in this sparse package.
   run(sdk, ["pack", "/d", packageDir, "/p", packageOutput, "/nv", "/o"]);
+  // The helper reads the PFX password from the environment and suppresses
+  // invocation details on errors so it never appears in build logs.
+  const signEnv = { ...env, DEVHUB_EXPLORER_CERTIFICATE: certificate,
+    DEVHUB_EXPLORER_SIGNTOOL: join(dirname(sdk), "signtool.exe"), DEVHUB_EXPLORER_PACKAGE: packageOutput };
+  execFileSync(powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+    join(root, "tools", "sign-explorer-package.ps1")],
+    { cwd: output, env: signEnv, stdio: "inherit", windowsHide: true });
+  run(powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+    join(root, "tools", "verify-explorer-package.ps1"), "-PackagePath", packageOutput, "-ExpectedVersion", version]);
 }
 copyFileSync(join(source, "manage.ps1"), join(resources, "manage.ps1"));
-console.log("Explorer extension built (registration is a separate user action).");
+console.log("Signed Explorer extension built (certificate trust and registration are separate user actions).");
+if (!signedPackage && !process.env.DEVHUB_EXPLORER_CERTIFICATE) {
+  console.log(`Local development certificate: ${publicCertificate} (public certificate only; must be trusted before registration).`);
+}
