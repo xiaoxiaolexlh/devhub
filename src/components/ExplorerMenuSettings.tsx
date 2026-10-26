@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, Loader2, RefreshCw } from "lucide-react";
+import { Check, Copy, FolderOpen, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { tauri, type ExplorerMenuStatus } from "@/lib/tauri";
 
@@ -8,6 +8,14 @@ export function ExplorerMenuSettings() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [trustCommandCopyStatus, setTrustCommandCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+
+  const certificatePath = error?.match(
+    /The Explorer menu signing certificate is not trusted\.[\s\S]*?then retry:\s*(.+)$/i,
+  )?.[1]?.trim();
+  const trustCommand = certificatePath
+    ? `Import-Certificate -FilePath '${certificatePath.replace(/'/g, "''")}' -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople`
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -45,6 +53,17 @@ export function ExplorerMenuSettings() {
     } finally { setBusy(false); }
   }
 
+  async function copyTrustCommand() {
+    if (!trustCommand) return;
+    try {
+      await navigator.clipboard.writeText(trustCommand);
+      setTrustCommandCopyStatus("copied");
+      window.setTimeout(() => setTrustCommandCopyStatus("idle"), 1500);
+    } catch {
+      setTrustCommandCopyStatus("failed");
+    }
+  }
+
   return (
     <section className="rounded-2xl border border-border bg-bg-subtle p-6 shadow-sm">
       <div className="flex items-start gap-4">
@@ -76,7 +95,29 @@ export function ExplorerMenuSettings() {
             </Button>
           </div>
           {notice && <p role="status" className="mt-3 text-xs text-success">{notice}</p>}
-          {error && <p role="alert" className="mt-3 break-words text-xs text-danger">{error}</p>}
+          {trustCommand ? (
+            <div role="alert" className="mt-3 space-y-2 rounded-md border border-danger/30 bg-danger/5 p-3 text-xs">
+              <p className="font-medium text-danger">需要管理员信任右键菜单证书</p>
+              <p className="text-fg-muted">
+                请在管理员 PowerShell 中运行此命令。每台电脑导入一次后，该电脑上的所有用户均可使用。
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 break-all rounded border border-border bg-bg px-2 py-1.5 font-mono text-fg">
+                  {trustCommand}
+                </code>
+                <Button variant="outline" size="sm" onClick={() => void copyTrustCommand()}>
+                  {trustCommandCopyStatus === "copied" ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                  {trustCommandCopyStatus === "copied" ? "已复制" : "复制命令"}
+                </Button>
+              </div>
+              {trustCommandCopyStatus === "failed" && (
+                <p role="status" className="text-warning">复制失败，请手动选择上方命令复制。</p>
+              )}
+              <p className="text-fg-muted">仅导入公开证书；操作会将其加入本机信任存储。</p>
+            </div>
+          ) : error ? (
+            <p role="alert" className="mt-3 break-words text-xs text-danger">{error}</p>
+          ) : null}
         </div>
       </div>
     </section>
