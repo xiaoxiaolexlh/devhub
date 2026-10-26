@@ -16,6 +16,7 @@
 pnpm build:explorer
 node tools/build-explorer.mjs --test
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/test-explorer-management.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/test-explorer-paths.ps1
 pnpm build
 pnpm tauri build
 ```
@@ -29,6 +30,8 @@ Tauri 的开发/发布预构建钩子会生成菜单资源。纯前端 `pnpm bui
 `--test` 检查 Windows 参数解析往返（中文、空格、特殊字符、UNC、末尾反斜杠、盘符根目录）、COM 工厂生命周期、菜单名称和文件/文件夹可见性。测试不会安装菜单、启动 DevHub 或调用真实注册命令。
 
 `test-explorer-management.ps1` 用模拟的 Appx 接口验证只读状态查询、添加、重新注册、移除、重复移除及其他应用包不受影响；不会调用真实 Windows 注册接口。
+
+`test-explorer-paths.ps1` 用真实 Windows PowerShell 5.1 子进程，以普通路径和 Tauri 返回的 `\\?\` 路径启动脚本，验证带中文、空格和方括号的目录可以查询状态。它只读取 Appx 状态，不注册菜单。`v0.4.3` 修复了这类路径触发 `Join-Path` 的 `drive` 参数为空错误，并在调用 PowerShell 路径及 Appx API 前将本地路径和 UNC 路径转换为兼容格式。
 
 Windows 加载过 DLL 后可能仍持有文件句柄；重建前先移除菜单并关闭正在展示菜单的 Explorer 窗口。必要时注销后再重新构建，不自动终止 Explorer 或 COM 宿主。
 

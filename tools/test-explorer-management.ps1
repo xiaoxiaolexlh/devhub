@@ -6,7 +6,8 @@ $resources = Join-Path $fixture 'resources\explorer'
 New-Item -ItemType Directory -Force -Path $resources | Out-Null
 Set-Content -LiteralPath (Join-Path $fixture 'devhub.exe') -Value 'test fixture only'
 foreach ($name in @('manage.ps1', 'DevHub.ContextMenu.msix', 'devhub-explorer.dll')) {
-    Copy-Item -LiteralPath (Join-Path $root "src-tauri\resources\explorer\$name") -Destination $resources -Force
+    $source = if ($name -eq 'manage.ps1') { Join-Path $root 'src-tauri\explorer\manage.ps1' } else { Join-Path $root "src-tauri\resources\explorer\$name" }
+    Copy-Item -LiteralPath $source -Destination $resources -Force
 }
 $manage = Join-Path $resources 'manage.ps1'
 $global:DevHubExplorerTestState = @{}
@@ -48,8 +49,8 @@ Assert (-not $status.installed -and $status.available) 'initial status'
 Assert ($global:DevHubExplorerTestState.addCalls -eq 0 -and $global:DevHubExplorerTestState.removeCalls -eq 0) 'status must be read-only'
 $status = (& $manage -Action install -AppDirectory $fixture) | ConvertFrom-Json
 Assert ($status.installed -and $global:DevHubExplorerTestState.addCalls -eq 1) 'install'
-$status = (& $manage -Action install -AppDirectory $fixture) | ConvertFrom-Json
-Assert ($status.installed -and $global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 're-register'
+$status = (& $manage -Action install -AppDirectory ('\\?\' + $fixture)) | ConvertFrom-Json
+Assert ($status.installed -and $global:DevHubExplorerTestState.addCalls -eq 2 -and $global:DevHubExplorerTestState.removeCalls -eq 1) 're-register with normalized Appx external location'
 $status = (& $manage -Action uninstall -AppDirectory $fixture) | ConvertFrom-Json
 Assert (-not $status.installed -and $global:DevHubExplorerTestState.removeCalls -eq 2) 'uninstall'
 $status = (& $manage -Action uninstall -AppDirectory $fixture) | ConvertFrom-Json

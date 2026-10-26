@@ -7,10 +7,26 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $packageName = 'DevHub.ExplorerContextMenu'
 
+# Tauri canonicalizes the resource path, so -File can receive \\?\C:\...
+# Windows PowerShell 5.1 runs that script but Join-Path cannot resolve its drive.
+# Normalize both script and application directories before using PS/Appx APIs.
+function ConvertTo-ExplorerPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if ($Path.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        return '\\' + $Path.Substring(8)
+    }
+    if ($Path.StartsWith('\\?\', [StringComparison]::Ordinal)) {
+        return $Path.Substring(4)
+    }
+    return $Path
+}
+
 try {
+    $resourceDirectory = ConvertTo-ExplorerPath $PSScriptRoot
+    $AppDirectory = ConvertTo-ExplorerPath $AppDirectory
     $supported = [Environment]::OSVersion.Version.Build -ge 22000 -and [Environment]::Is64BitOperatingSystem
-    $packagePath = Join-Path $PSScriptRoot 'DevHub.ContextMenu.msix'
-    $dllPath = Join-Path $PSScriptRoot 'devhub-explorer.dll'
+    $packagePath = Join-Path $resourceDirectory 'DevHub.ContextMenu.msix'
+    $dllPath = Join-Path $resourceDirectory 'devhub-explorer.dll'
     $exePath = Join-Path $AppDirectory 'devhub.exe'
     $available = (Test-Path -LiteralPath $packagePath -PathType Leaf) -and
         (Test-Path -LiteralPath $dllPath -PathType Leaf) -and (Test-Path -LiteralPath $exePath -PathType Leaf)
