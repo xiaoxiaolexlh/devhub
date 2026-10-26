@@ -83,7 +83,7 @@ public:
         return SHStrDupW((executablePath() + L",0").c_str(), result);
     }
     IFACEMETHODIMP GetToolTip(IShellItemArray*, PWSTR* result) override {
-        return SHStrDupW(L"在 DevHub 内置工作区中打开", result);
+        return SHStrDupW(L"使用 DevHub 设置的默认方式打开", result);
     }
     IFACEMETHODIMP GetCanonicalName(GUID* result) override {
         *result = CLSID_DevHub;
@@ -122,7 +122,7 @@ public:
         if (FAILED(hr)) return hr;
         const auto exe = executablePath();
         if (exe.empty()) return E_FAIL;
-        std::wstring command = quoteArgument(exe) + L" " + quoteArgument(path);
+        std::wstring command = quoteArgument(exe) + L" --open-with-default " + quoteArgument(path);
         STARTUPINFOW startup = {sizeof(startup)};
         PROCESS_INFORMATION process = {};
         // No shell, PowerShell or cmd interpolation: filenames are argv data.

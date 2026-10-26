@@ -73,7 +73,7 @@ export function ExplorerMenuSettings() {
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-fg">资源管理器右键菜单</h2>
           <p className="mt-1 text-xs leading-5 text-fg-muted">
-            在 Windows 11 第一层右键菜单中添加“通过 DevHub 打开”。右键单个文件、文件夹或文件夹空白处，即可用内置工作区打开。
+            在 Windows 11 第一层右键菜单中添加“通过 DevHub 打开”。右键单个文件、文件夹或文件夹空白处，会跟随应用设置中的默认打开方式。
           </p>
           <p className="mt-2 text-xs text-fg-muted">
             {busy ? "正在处理…" : !status ? "暂时无法读取状态" : !status.supported

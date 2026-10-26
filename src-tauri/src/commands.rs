@@ -1035,6 +1035,26 @@ pub async fn open_with_method(
     open_path_with_method(&app, &method, path)
 }
 
+pub fn open_default_path(app: &tauri::AppHandle, path: String) -> Result<(), String> {
+    let settings = SETTINGS.lock().unwrap().clone();
+    let method = resolve_primary_open_method(&settings)
+        .ok_or_else(|| "没有可用的打开方式，请检查设置中的启用状态和程序路径。".to_string())?;
+    open_path_with_method(app, method, path)
+}
+
+fn resolve_primary_open_method(settings: &Settings) -> Option<&OpenMethod> {
+    let is_ready = |method: &&OpenMethod| {
+        method.enabled
+            && (method.kind != OpenMethodKind::ExternalApp || !method.command.trim().is_empty())
+    };
+    settings
+        .open_methods
+        .iter()
+        .find(|method| method.id == settings.default_open_method_id)
+        .filter(is_ready)
+        .or_else(|| settings.open_methods.iter().find(is_ready))
+}
+
 fn open_path_with_method(
     app: &tauri::AppHandle,
     method: &OpenMethod,
@@ -1860,6 +1880,53 @@ fn encode_uri_component(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_open_method_prefers_configured_ready_method() {
+        let mut settings = Settings::default();
+        settings.default_open_method_id = "cursor".into();
+        settings
+            .open_methods
+            .iter_mut()
+            .find(|method| method.id == "cursor")
+            .unwrap()
+            .command = "cursor".into();
+
+        let method = resolve_primary_open_method(&settings).unwrap();
+        assert_eq!(method.id, "cursor");
+    }
+
+    #[test]
+    fn default_open_method_falls_back_when_preference_is_unavailable() {
+        let mut settings = Settings::default();
+        settings.default_open_method_id = "cursor".into();
+        settings
+            .open_methods
+            .iter_mut()
+            .find(|method| method.id == "explorer")
+            .unwrap()
+            .enabled = false;
+        settings
+            .open_methods
+            .iter_mut()
+            .find(|method| method.id == "cursor")
+            .unwrap()
+            .command
+            .clear();
+
+        let method = resolve_primary_open_method(&settings).unwrap();
+        assert_eq!(method.id, "workspace");
+    }
+
+    #[test]
+    fn default_open_method_returns_none_when_no_method_is_ready() {
+        let mut settings = Settings::default();
+        for method in &mut settings.open_methods {
+            method.enabled = false;
+        }
+
+        assert!(resolve_primary_open_method(&settings).is_none());
+    }
 
     #[test]
     fn normalize_ai_config_tools_trims_and_normalizes_entries() {

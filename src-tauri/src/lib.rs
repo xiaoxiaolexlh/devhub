@@ -24,13 +24,11 @@ use cleaner::{
 use commands::{
     check_running_processes, close_terminal_project_sessions, close_terminal_session,
     close_terminal_tool_sessions, copy_extensions, delete_extensions, export_ai_config_tools,
-    export_hbuilderx_cli_config, focus_terminal_session, get_ai_config_tool_files,
-    get_ai_config_tool_statuses,
-    get_hbuilderx_web_runs, get_settings, import_ai_config_tools, import_hbuilderx_cli_config,
-    launch_terminal_session, list_editors, list_terminal_sessions,
-    filter_terminal_project_directories, open_folder_window,
-    open_in_explorer, open_path_window, open_with_method,
-    preview_hbuilderx_publish_app_resource,
+    export_hbuilderx_cli_config, filter_terminal_project_directories, focus_terminal_session,
+    get_ai_config_tool_files, get_ai_config_tool_statuses, get_hbuilderx_web_runs, get_settings,
+    import_ai_config_tools, import_hbuilderx_cli_config, launch_terminal_session, list_editors,
+    list_terminal_sessions, open_default_path, open_folder_window, open_in_explorer,
+    open_path_window, open_with_method, preview_hbuilderx_publish_app_resource,
     preview_hbuilderx_run_web, purge_trash, read_workspace_dir, read_workspace_file,
     resolve_hbuilderx_cli, run_hbuilderx_publish_app_resource, run_hbuilderx_web, save_settings,
     scan_all, scan_extensions, scan_project_config_dirs, stop_all_hbuilderx_web_runs,
@@ -143,12 +141,22 @@ pub fn run() {
             let s = settings::load();
             syncer::purge_old_trash(s.backup_days);
 
-            if let Some(path) = std::env::args_os().nth(1) {
-                let path = path.to_string_lossy().to_string();
-                if open_path_window(app.handle(), path).is_ok() {
-                    if let Some(main) = app.get_webview_window("main") {
-                        let _ = main.close();
-                    }
+            let mut args = std::env::args_os().skip(1);
+            let first = args.next();
+            let second = args.next();
+            let has_open_argument = first.is_some();
+            let opened = match (first, second) {
+                (Some(flag), Some(path)) if flag == "--open-with-default" => {
+                    open_default_path(app.handle(), path.to_string_lossy().to_string())
+                }
+                (Some(path), _) => {
+                    open_path_window(app.handle(), path.to_string_lossy().to_string())
+                }
+                _ => Ok(()),
+            };
+            if opened.is_ok() && has_open_argument {
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.close();
                 }
             }
 

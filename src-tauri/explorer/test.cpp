@@ -13,9 +13,10 @@ int wmain(int argc, wchar_t** argv) {
     };
     for (const auto& path : paths) {
         int count = 0;
-        const auto command = quoteArgument(L"D:\\程序 目录\\devhub.exe") + L" " + quoteArgument(path);
+        const auto command = quoteArgument(L"D:\\程序 目录\\devhub.exe")
+            + L" --open-with-default " + quoteArgument(path);
         auto parsed = CommandLineToArgvW(command.c_str(), &count);
-        assert(parsed && count == 2 && path == parsed[1]);
+        assert(parsed && count == 3 && std::wstring(parsed[1]) == L"--open-with-default" && path == parsed[2]);
         LocalFree(parsed);
     }
     assert(DllCanUnloadNow() == S_OK);
