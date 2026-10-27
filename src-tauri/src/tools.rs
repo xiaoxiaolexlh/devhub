@@ -255,6 +255,25 @@ fn registry() -> Vec<ToolSpec> {
             raw_exe: true,
             homepage: "https://usemagpie.ai".into(),
         },
+        ToolSpec {
+            id: "argus".into(),
+            name: "Argus".into(),
+            group: "system".into(),
+            description: "现代 Windows 任务管理器(进程、性能、服务、启动项、网络连接与 7 天历史回溯,Rust + Tauri 构建,无需管理员即可查看全部进程),Windows 10 22H2+ x64 免安装单文件版,下载后存放在本应用数据目录,双击卡片即可打开。".into(),
+            // RedirectTag: releases/latest 302 到 .../releases/tag/<tag>,
+            // 用 tag + 版本号拼装免安装单文件 exe 下载地址(发布物为单个 .exe,非 zip)
+            download_url:
+                "https://github.com/Ray-lea/Argus/releases/download/{tag}/Argus_{version}_x64.exe"
+                    .into(),
+            update_url: "https://github.com/Ray-lea/Argus/releases/latest".into(),
+            fallback_page_url: String::new(),
+            version_source: VersionSource::RedirectTag,
+            exe_entry: "argus.exe".into(),
+            extra_entries: vec![],
+            extract_all: false,
+            raw_exe: true,
+            homepage: "https://github.com/Ray-lea/Argus".into(),
+        },
     ]
 }
 
@@ -2091,6 +2110,25 @@ mod tests {
     }
 
     #[test]
+    fn registry_includes_argus_raw_exe() {
+        let au = find_spec("argus").unwrap();
+        assert_eq!(au.version_source, VersionSource::RedirectTag);
+        assert_eq!(au.exe_entry, "argus.exe");
+        assert!(au.raw_exe);
+        assert!(!au.extract_all);
+        assert!(au.extra_entries.is_empty());
+        assert_eq!(au.group, "system");
+        // 免安装单文件版文件名带版本号,用真实 tag + 版本号拼装下载地址
+        assert!(au.download_url.contains("/releases/download/{tag}/"));
+        assert!(au.download_url.contains("Argus_{version}_x64.exe"));
+        assert!(au.update_url.ends_with("/releases/latest"));
+        assert_eq!(
+            expand_version_template(&au.download_url, "0.3.4", "v0.3.4").unwrap(),
+            "https://github.com/Ray-lea/Argus/releases/download/v0.3.4/Argus_0.3.4_x64.exe"
+        );
+    }
+
+    #[test]
     fn every_tool_group_is_registered() {
         let registered: Vec<&str> = TOOL_GROUPS.iter().map(|(id, _)| *id).collect();
         for spec in registry() {
@@ -2107,6 +2145,7 @@ mod tests {
             ("everything", "system"),
             ("wiztree", "system"),
             ("hiddify", "system"),
+            ("argus", "system"),
             ("gonavi", "database"),
             ("dbx", "database"),
             ("cc-switch", "ai"),

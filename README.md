@@ -20,7 +20,7 @@
 - **Node 服务管理** — 添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出。
 - **系统设置** — 集中管理电脑常用设置与快捷电源操作，目前支持一键关闭显示器。
 - **资源管理器右键菜单** — 在「系统设置」中启用 Windows 11 第一层菜单「通过 DevHub 打开」，将文件、文件夹或当前文件夹交给内置工作区。
-- **工具管理** — 内置工具注册表，一键下载官方便携版、检查更新并直接打开（Geek Uninstaller、Everything、GoNavi、DBX、WizTree、Hiddify、CC Switch、Magpie、Notepad--），并按「系统工具 / 数据库工具 / AI 工具 / 文本编辑器」分组筛选。
+- **工具管理** — 内置工具注册表，一键下载官方便携版、检查更新并直接打开（Geek Uninstaller、Everything、GoNavi、DBX、WizTree、Hiddify、CC Switch、Magpie、Notepad--、Argus），并按「系统工具 / 数据库工具 / AI 工具 / 文本编辑器」分组筛选。
 
 ## 默认扩展目录
 
@@ -126,6 +126,7 @@
 | CC Switch | Claude Code / Codex 等 AI CLI 的供应商与配置切换 |
 | Magpie | AI 代理网关，将 Claude Code、Codex、Gemini CLI 等代理路由到任意模型/供应商（协议互转、多 key 轮换、自动故障转移） |
 | Notepad-- | 轻量开源文本编辑器（类 Notepad++，支持多标签、列编辑、Lua 插件） |
+| Argus | 现代 Windows 任务管理器（进程、性能、服务、启动项、网络连接与历史回溯，免安装单文件版） |
 
 说明：
 
