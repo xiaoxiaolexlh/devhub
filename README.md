@@ -18,6 +18,7 @@
 - **AI 配置管理** — 管理 Claude、Codex、OpenCode、Pi、Grok、ZCode 和自定义工具的配置目录，可用资源管理器或内置工作区打开，并导入导出工具清单。
 - **AI 终端管理** — 按项目绑定 AI CLI，在独立 Windows Terminal 窗口中统一启动、切换、新开和精确关闭会话，并可按开关为新会话注入多组临时环境变量。
 - **Node 服务管理** — 添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出。
+- **HBuilderX CLI** — 管理多个 uni-app 项目，通过 HBuilderX CLI 一键运行 WEB、发行 App 本地打包资源和支付宝小程序，支持命令预览、复制与实时输出。
 - **系统设置** — 集中管理电脑常用设置与快捷电源操作，目前支持一键关闭显示器。
 - **资源管理器右键菜单** — 在「系统设置」中启用 Windows 11 第一层菜单「通过 DevHub 打开」，将文件、文件夹或当前文件夹交给内置工作区。
 - **工具管理** — 内置工具注册表，一键下载官方便携版、检查更新并直接打开（Geek Uninstaller、Everything、GoNavi、DBX、WizTree、Hiddify、CC Switch、Magpie、Notepad--、Argus），并按「系统工具 / 数据库工具 / AI 工具 / 文本编辑器」分组筛选。
@@ -98,6 +99,39 @@
 - 命令的输出通过事件实时推送到界面，HBuilderX CLI 模式用的也是同一套机制。
 - 应用退出时若还有运行中的任务，会先弹窗确认；确认退出会终止所有 Node 任务（HBuilderX WEB 任务同理）。
 - 服务的文件夹列表和快捷命令持久化；任务的输出只保存在当前进程内存中，重启后不恢复。
+
+## HBuilderX CLI
+
+「HBuilderX CLI」模式用于管理本机的 uni-app 项目，通过 HBuilderX CLI 在命令行里完成运行和发行，无需打开 HBuilderX 界面。
+
+1. 在「设置 → HBuilderX CLI」填写 HBuilderX 安装目录（`cli.exe` 所在文件夹），再添加项目文件夹；项目也可以在此模式左侧直接添加、拖拽排序、分组。
+2. 顶部切换「运行 / 发行」两个页签，每个页签下先选平台，再为当前项目配置参数。
+3. 每个项目都会实时显示最终命令，可复制命令，也可直接执行；执行结果会显示退出码、stdout、stderr 和错误信息。
+
+已接入的平台：
+
+| 页签 | 平台 | 命令 |
+|---|---|---|
+| 运行 | uni-app / uni-app x 运行 - WEB | `cli launch web --project <项目全路径>` |
+| 发行 | uni-app / uni-app x 发行 - App 生成本地打包资源 | `cli publish --platform APP --type appResource --project <项目全路径>` |
+| 发行 | uni-app 发行 - 支付宝小程序 | `cli publish --platform mp-alipay --project <项目全路径>` |
+
+其余平台（云打包、鸿蒙、wgt、WEB 发行、小程序等）在界面中列出但暂未实现，点击会提示「暂未实现」。
+
+说明:
+
+- 运行 WEB 支持配置 `--browser`、`--ui`、`--compile`、`--continue-on-error`，其中 `--ui` 需要 HBuilderX 5.11+，`launch web` 需要 HBuilderX 5.0+。
+- App 生成本地打包资源支持 `APP`（通用）、`app-ios`、`app-android`（后两者需要 HBuilderX 4.67-alpha+），并可选择在发行成功后把产物复制到指定目录。
+- 支付宝小程序仅支持 uni-app 项目。不开启上传时只做编译；开启上传后必须填写小程序 appid 和支付宝开发工具密钥文件，才会追加 `--upload true`、`--appid`、`--privatekey`（以及可选的 `--description`、`--version`、`--subPackage`）。版本号留空时读取 `manifest.json` 中的版本号。
+- `--project` 始终传项目文件夹绝对路径，避免同名项目或未导入项目产生歧义。
+- App 本地打包资源和支付宝小程序发行在后台执行，等待 CLI 结束及复制产物时不会阻塞窗口；发行日志在任务结束后统一显示，并非实时输出。
+- 项目配置可单个或全部导出为 JSON 并再次导入；导入时按项目 `id` 合并，路径不存在的项目会保留，重新绑定路径即可继续使用。
+
+相关文档：
+
+- [HBuilderX CLI 与 Web 运行命令说明](docs/hbuilderx-cli-launch-web.md)
+- [HBuilderX CLI App 生成本地打包资源命令说明](docs/hbuilderx-cli-publish-app-appresource.md)
+- [HBuilderX CLI 发行支付宝小程序命令说明](docs/hbuilderx-cli-publish-mp-alipay.md)
 
 ## 系统设置
 

@@ -2,7 +2,7 @@ use crate::editors::Editor;
 use crate::scanner::{self, Extension};
 use crate::settings::{
     self, AiConfigTool, HBuilderXProject, HBuilderXProjectGroup, HBuilderXPublishAppResourceConfig,
-    HBuilderXRunWebConfig, OpenMethod, OpenMethodKind, Settings,
+    HBuilderXPublishMpAlipayConfig, HBuilderXRunWebConfig, OpenMethod, OpenMethodKind, Settings,
 };
 use crate::syncer::{
     self, CopyResultItem, CopyTask, ProjectConfigEntry, ProjectConfigResultItem, ProjectConfigTask,
@@ -77,6 +77,13 @@ pub struct HBuilderXPublishAppResourceRequest {
     pub cli_dir: String,
     pub project_path: String,
     pub options: HBuilderXPublishAppResourceConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HBuilderXPublishMpAlipayRequest {
+    pub cli_dir: String,
+    pub project_path: String,
+    pub options: HBuilderXPublishMpAlipayConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -316,7 +323,21 @@ pub fn preview_hbuilderx_publish_app_resource(
 }
 
 #[tauri::command]
-pub fn run_hbuilderx_publish_app_resource(
+pub async fn run_hbuilderx_publish_app_resource(
+    request: HBuilderXPublishAppResourceRequest,
+) -> Result<HBuilderXPublishResult, String> {
+    run_hbuilderx_publish_task(move || run_hbuilderx_publish_app_resource_sync(request)).await
+}
+
+async fn run_hbuilderx_publish_task(
+    task: impl FnOnce() -> HBuilderXPublishResult + Send + 'static,
+) -> Result<HBuilderXPublishResult, String> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("HBuilderX 发行后台任务失败: {error}"))
+}
+
+fn run_hbuilderx_publish_app_resource_sync(
     request: HBuilderXPublishAppResourceRequest,
 ) -> HBuilderXPublishResult {
     let preview = match build_hbuilderx_publish_app_resource_command(&request) {
@@ -391,6 +412,84 @@ pub fn run_hbuilderx_publish_app_resource(
         command: preview.command,
         error,
         copy_result,
+    }
+}
+
+#[tauri::command]
+pub fn preview_hbuilderx_publish_mp_alipay(
+    request: HBuilderXPublishMpAlipayRequest,
+) -> Result<HBuilderXCommandPreview, String> {
+    build_hbuilderx_publish_mp_alipay_command(&request)
+}
+
+#[tauri::command]
+pub async fn run_hbuilderx_publish_mp_alipay(
+    request: HBuilderXPublishMpAlipayRequest,
+) -> Result<HBuilderXPublishResult, String> {
+    run_hbuilderx_publish_task(move || run_hbuilderx_publish_mp_alipay_sync(request)).await
+}
+
+fn run_hbuilderx_publish_mp_alipay_sync(
+    request: HBuilderXPublishMpAlipayRequest,
+) -> HBuilderXPublishResult {
+    let preview = match build_hbuilderx_publish_mp_alipay_command(&request) {
+        Ok(preview) => preview,
+        Err(error) => {
+            return HBuilderXPublishResult {
+                success: false,
+                command_success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                command: String::new(),
+                error: Some(error),
+                copy_result: None,
+            }
+        }
+    };
+
+    let mut command = Command::new(&preview.cli_path);
+    command.args(&preview.args);
+    configure_hidden_process(&mut command);
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) => {
+            return HBuilderXPublishResult {
+                success: false,
+                command_success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                command: preview.command,
+                error: Some(error.to_string()),
+                copy_result: None,
+            }
+        }
+    };
+
+    let command_success = output.status.success();
+    let stdout = clean_process_output(&decode_process_bytes(&output.stdout));
+    let stderr = clean_process_output(&decode_process_bytes(&output.stderr));
+    let error = if command_success {
+        None
+    } else if stderr.trim().is_empty() {
+        Some(format!(
+            "HBuilderX CLI exited with status {}",
+            output.status
+        ))
+    } else {
+        Some(stderr.clone())
+    };
+
+    HBuilderXPublishResult {
+        success: command_success,
+        command_success,
+        exit_code: output.status.code(),
+        stdout,
+        stderr,
+        command: preview.command,
+        error,
+        copy_result: None,
     }
 }
 
@@ -1469,6 +1568,70 @@ fn build_hbuilderx_publish_app_resource_command(
     })
 }
 
+fn build_hbuilderx_publish_mp_alipay_command(
+    request: &HBuilderXPublishMpAlipayRequest,
+) -> Result<HBuilderXCommandPreview, String> {
+    let cli_path = resolve_cli_path(&request.cli_dir)?;
+    let project_path = canonical_project_path(&request.project_path)?;
+    let options = &request.options;
+    let appid = options.appid.trim();
+    let privatekey = options.privatekey.trim();
+    let description = options.description.trim();
+    let version = options.version.trim();
+    let sub_package = options.sub_package.trim();
+
+    if options.upload {
+        if appid.is_empty() {
+            return Err("上传到支付宝平台需要填写小程序 appid".into());
+        }
+        if privatekey.is_empty() {
+            return Err("上传到支付宝平台需要填写支付宝开发工具密钥文件".into());
+        }
+        let key_path = PathBuf::from(normalize_input_path(privatekey));
+        if !key_path.is_file() {
+            return Err(format!("支付宝开发工具密钥文件不存在: {privatekey}"));
+        }
+    }
+
+    let mut args = vec![
+        "publish".to_string(),
+        "--platform".to_string(),
+        "mp-alipay".to_string(),
+        "--project".to_string(),
+        path_to_display_string(&project_path),
+    ];
+    if !sub_package.is_empty() {
+        args.push("--subPackage".into());
+        args.push(sub_package.to_string());
+    }
+    if options.upload {
+        args.push("--upload".into());
+        args.push("true".into());
+        args.push("--appid".into());
+        args.push(appid.to_string());
+        if !description.is_empty() {
+            args.push("--description".into());
+            args.push(description.to_string());
+        }
+        if !version.is_empty() {
+            args.push("--version".into());
+            args.push(version.to_string());
+        }
+        args.push("--privatekey".into());
+        args.push(path_to_display_string(&PathBuf::from(normalize_input_path(
+            privatekey,
+        ))));
+    }
+
+    let cli_path = path_to_display_string(&cli_path);
+    let command = display_command(&cli_path, &args);
+    Ok(HBuilderXCommandPreview {
+        cli_path,
+        args,
+        command,
+    })
+}
+
 fn copy_folder_contents(source_dir: &str, target_dir: &str) -> FolderCopyResult {
     let source_input = normalize_input_path(source_dir.trim());
     let target_input = normalize_input_path(target_dir.trim());
@@ -1882,6 +2045,85 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hbuilderx_publish_task_yields_while_worker_is_blocked() {
+        use std::future::Future;
+        use std::sync::mpsc;
+        use std::task::{Context, Waker};
+        use std::time::Duration;
+
+        let caller_thread = std::thread::current().id();
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (finish_sender, finish_receiver) = mpsc::channel();
+        let mut task = Box::pin(run_hbuilderx_publish_task(move || {
+            started_sender.send(std::thread::current().id()).unwrap();
+            finish_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            HBuilderXPublishResult {
+                success: false,
+                command_success: false,
+                exit_code: Some(7),
+                stdout: "compile output".into(),
+                stderr: "upload failed".into(),
+                command: "cli publish".into(),
+                error: Some("upload failed".into()),
+                copy_result: None,
+            }
+        }));
+        let mut context = Context::from_waker(Waker::noop());
+
+        assert!(task.as_mut().poll(&mut context).is_pending());
+        let worker_thread = started_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_ne!(caller_thread, worker_thread);
+        finish_sender.send(()).unwrap();
+
+        let result = tauri::async_runtime::block_on(task).unwrap();
+        assert!(!result.success);
+        assert!(!result.command_success);
+        assert_eq!(result.exit_code, Some(7));
+        assert_eq!(result.stdout, "compile output");
+        assert_eq!(result.stderr, "upload failed");
+        assert_eq!(result.command, "cli publish");
+        assert_eq!(result.error.as_deref(), Some("upload failed"));
+        assert!(result.copy_result.is_none());
+    }
+
+    #[test]
+    fn hbuilderx_publish_task_reports_worker_failure() {
+        let error = tauri::async_runtime::block_on(run_hbuilderx_publish_task(|| {
+            panic!("publish worker failed")
+        }))
+        .unwrap_err();
+        assert!(error.contains("HBuilderX 发行后台任务失败"));
+    }
+
+    #[test]
+    fn hbuilderx_publish_commands_preserve_validation_errors() {
+        let app_resource = tauri::async_runtime::block_on(run_hbuilderx_publish_app_resource(
+            HBuilderXPublishAppResourceRequest {
+                cli_dir: String::new(),
+                project_path: String::new(),
+                options: HBuilderXPublishAppResourceConfig::default(),
+            },
+        ))
+        .unwrap();
+        let mp_alipay = tauri::async_runtime::block_on(run_hbuilderx_publish_mp_alipay(
+            HBuilderXPublishMpAlipayRequest {
+                cli_dir: String::new(),
+                project_path: String::new(),
+                options: HBuilderXPublishMpAlipayConfig::default(),
+            },
+        ))
+        .unwrap();
+
+        for result in [app_resource, mp_alipay] {
+            assert!(!result.success);
+            assert!(!result.command_success);
+            assert!(result.exit_code.is_none());
+            assert!(result.error.is_some());
+            assert!(result.copy_result.is_none());
+        }
+    }
+
+    #[test]
     fn default_open_method_prefers_configured_ready_method() {
         let mut settings = Settings::default();
         settings.default_open_method_id = "cursor".into();
@@ -2116,5 +2358,97 @@ mod tests {
             "/devhub/definitely/missing"
         };
         assert!(collect_ai_config_files("ai-config-custom", dir).is_empty());
+    }
+
+    fn temp_hbx_fixture(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "devhub-hbx-mp-alipay-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let cli_dir = root.join("cli");
+        let project_dir = root.join("project");
+        fs::create_dir_all(&cli_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(cli_dir.join(if cfg!(windows) { "cli.exe" } else { "cli" }), "").unwrap();
+        let key = root.join("key.txt");
+        fs::write(&key, "key").unwrap();
+        (cli_dir, project_dir, key)
+    }
+
+    #[test]
+    fn mp_alipay_command_compiles_only_without_upload() {
+        let (cli_dir, project_dir, _) = temp_hbx_fixture("compile");
+        let request = HBuilderXPublishMpAlipayRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishMpAlipayConfig::default(),
+        };
+        let preview = build_hbuilderx_publish_mp_alipay_command(&request).unwrap();
+        assert_eq!(preview.args[0], "publish");
+        assert_eq!(preview.args[1], "--platform");
+        assert_eq!(preview.args[2], "mp-alipay");
+        assert_eq!(preview.args[3], "--project");
+        assert!(!preview.args.iter().any(|arg| arg == "--upload"));
+        assert!(!preview.args.iter().any(|arg| arg == "--appid"));
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn mp_alipay_command_appends_upload_arguments() {
+        let (cli_dir, project_dir, key) = temp_hbx_fixture("upload");
+        let request = HBuilderXPublishMpAlipayRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishMpAlipayConfig {
+                appid: "2021000000000000".into(),
+                upload: true,
+                description: "发布描述".into(),
+                version: "1.2.3".into(),
+                privatekey: key.to_string_lossy().to_string(),
+                sub_package: "sub".into(),
+            },
+        };
+        let preview = build_hbuilderx_publish_mp_alipay_command(&request).unwrap();
+        let joined = preview.args.join(" ");
+        assert!(joined.contains("--subPackage sub"));
+        assert!(joined.contains("--upload true"));
+        assert!(joined.contains("--appid 2021000000000000"));
+        assert!(joined.contains("--description 发布描述"));
+        assert!(joined.contains("--version 1.2.3"));
+        assert!(joined.contains("--privatekey"));
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn mp_alipay_command_rejects_upload_without_appid_or_key() {
+        let (cli_dir, project_dir, _) = temp_hbx_fixture("missing");
+        let base = HBuilderXPublishMpAlipayRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishMpAlipayConfig {
+                upload: true,
+                ..Default::default()
+            },
+        };
+        let error = build_hbuilderx_publish_mp_alipay_command(&base).unwrap_err();
+        assert!(error.contains("appid"));
+
+        let mut with_appid = base;
+        with_appid.options.appid = "2021000000000000".into();
+        let error = build_hbuilderx_publish_mp_alipay_command(&with_appid).unwrap_err();
+        assert!(error.contains("密钥"));
+
+        with_appid.options.privatekey = if cfg!(windows) {
+            r"C:\devhub\definitely\missing-key.txt".into()
+        } else {
+            "/devhub/definitely/missing-key.txt".into()
+        };
+        let error = build_hbuilderx_publish_mp_alipay_command(&with_appid).unwrap_err();
+        assert!(error.contains("密钥文件不存在"));
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
     }
 }

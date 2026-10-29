@@ -146,9 +146,19 @@ export interface HBuilderXPublishAppResourceConfig {
   copy_target_dir: string;
 }
 
+export interface HBuilderXPublishMpAlipayConfig {
+  appid: string;
+  upload: boolean;
+  description: string;
+  version: string;
+  privatekey: string;
+  sub_package: string;
+}
+
 export interface HBuilderXPublishConfig {
   web: Record<string, unknown>;
   app_resource: HBuilderXPublishAppResourceConfig;
+  mp_alipay: HBuilderXPublishMpAlipayConfig;
 }
 
 export interface HBuilderXProject {
@@ -182,6 +192,12 @@ export interface HBuilderXPublishAppResourceRequest {
   cli_dir: string;
   project_path: string;
   options: HBuilderXPublishAppResourceConfig;
+}
+
+export interface HBuilderXPublishMpAlipayRequest {
+  cli_dir: string;
+  project_path: string;
+  options: HBuilderXPublishMpAlipayConfig;
 }
 
 export interface HBuilderXCommandPreview {
@@ -661,6 +677,16 @@ export const tauri = {
     }),
   stopHBuilderXWeb: (request: HBuilderXStopWebRequest) =>
     invoke<HBuilderXStopResult>("stop_hbuilderx_web", { request }),
+  previewHBuilderXPublishMpAlipay: (
+    request: HBuilderXPublishMpAlipayRequest,
+  ) =>
+    invoke<HBuilderXCommandPreview>("preview_hbuilderx_publish_mp_alipay", {
+      request,
+    }),
+  runHBuilderXPublishMpAlipay: (request: HBuilderXPublishMpAlipayRequest) =>
+    invoke<HBuilderXPublishResult>("run_hbuilderx_publish_mp_alipay", {
+      request,
+    }),
   onHBuilderXRunLog: (handler: (event: HBuilderXRunLogEvent) => void) =>
     listen<HBuilderXRunLogEvent>("hbuilderx-run-log", (event) =>
       handler(event.payload),

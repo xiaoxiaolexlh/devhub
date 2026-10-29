@@ -283,6 +283,14 @@ export function SettingsDialog({ open, onClose }: Props) {
           copy_source_dir: "",
           copy_target_dir: "",
         },
+        mp_alipay: {
+          appid: "",
+          upload: false,
+          description: "",
+          version: "",
+          privatekey: "",
+          sub_package: "",
+        },
       },
     };
     setDraft((d) =>

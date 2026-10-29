@@ -35,6 +35,7 @@ import {
   type HBuilderXProjectGroup,
   type HBuilderXProject,
   type HBuilderXPublishAppResourceConfig,
+  type HBuilderXPublishMpAlipayConfig,
   type HBuilderXPublishResult,
   type HBuilderXRunExitEvent,
   type HBuilderXRunLogEvent,
@@ -87,6 +88,7 @@ type PublishPlatform =
   | "harmony-resource"
   | "wgt"
   | "web"
+  | "mp-alipay"
   | "mini"
   | "harmony-serverless";
 
@@ -103,6 +105,7 @@ const publishPlatforms: Array<{ id: PublishPlatform; label: string; enabled: boo
   { id: "harmony-resource", label: "uni-app / uni-app x 发行 - 鸿蒙生成本地打包资源", enabled: false },
   { id: "wgt", label: "uni-app / uni-app x 发行 - App 制作应用 wgt 包", enabled: false },
   { id: "web", label: "uni-app / uni-app x 发行 - WEB", enabled: false },
+  { id: "mp-alipay", label: "uni-app 发行 - 支付宝小程序", enabled: true },
   { id: "mini", label: "uni-app / uni-app x 发行 - 小程序", enabled: false },
   { id: "harmony-serverless", label: "uni-app / uni-app x 发行 - 鸿蒙无服务打包", enabled: false },
 ];
@@ -470,7 +473,11 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
       name,
       path: picked,
       run: { web: defaultRunWebConfig() },
-      publish: { web: {}, app_resource: defaultPublishAppResourceConfig() },
+      publish: {
+        web: {},
+        app_resource: defaultPublishAppResourceConfig(),
+        mp_alipay: defaultPublishMpAlipayConfig(),
+      },
     };
     await updateSettings({
       hbuilderx_projects: [...currentSettings.hbuilderx_projects, project],
@@ -533,6 +540,29 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
     });
   }
 
+  async function updatePublishMpAlipay(
+    id: string,
+    patch: Partial<HBuilderXPublishMpAlipayConfig>,
+  ) {
+    await updateSettings({
+      hbuilderx_projects: currentSettings.hbuilderx_projects.map((project) =>
+        project.id === id
+          ? {
+              ...project,
+              publish: {
+                ...project.publish,
+                mp_alipay: {
+                  ...defaultPublishMpAlipayConfig(),
+                  ...project.publish.mp_alipay,
+                  ...patch,
+                },
+              },
+            }
+          : project,
+      ),
+    });
+  }
+
   async function removeProject(id: string) {
     await updateSettings({
       hbuilderx_projects: currentSettings.hbuilderx_projects.filter((project) => project.id !== id),
@@ -572,6 +602,23 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
         options: {
           ...defaultPublishAppResourceConfig(),
           ...project.publish.app_resource,
+        },
+      });
+      await navigator.clipboard.writeText(preview.command);
+      setMessage("发行命令已复制");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+
+  async function copyPublishMpAlipayCommand(project: HBuilderXProject) {
+    try {
+      const preview = await tauri.previewHBuilderXPublishMpAlipay({
+        cli_dir: currentSettings.hbuilderx_cli_dir,
+        project_path: project.path,
+        options: {
+          ...defaultPublishMpAlipayConfig(),
+          ...project.publish.mp_alipay,
         },
       });
       await navigator.clipboard.writeText(preview.command);
@@ -652,6 +699,49 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
         options: {
           ...defaultPublishAppResourceConfig(),
           ...project.publish.app_resource,
+        },
+      });
+      setPublishResult((items) => ({ ...items, [project.id]: next }));
+      setMessage(next.success ? "发行完成" : next.error ?? "发行失败");
+    } catch (e) {
+      setPublishResult((items) => ({
+        ...items,
+        [project.id]: {
+          success: false,
+          command_success: false,
+          exit_code: null,
+          stdout: "",
+          stderr: "",
+          command: "",
+          error: String(e),
+          copy_result: null,
+        },
+      }));
+      setMessage(String(e));
+    } finally {
+      setPublishingIds((items) => {
+        const nextItems = new Set(items);
+        nextItems.delete(project.id);
+        return nextItems;
+      });
+    }
+  }
+
+  async function publishMpAlipay(project: HBuilderXProject) {
+    setPublishingIds((items) => new Set(items).add(project.id));
+    setMessage(null);
+    setPublishResult((items) => {
+      const next = { ...items };
+      delete next[project.id];
+      return next;
+    });
+    try {
+      const next = await tauri.runHBuilderXPublishMpAlipay({
+        cli_dir: currentSettings.hbuilderx_cli_dir,
+        project_path: project.path,
+        options: {
+          ...defaultPublishMpAlipayConfig(),
+          ...project.publish.mp_alipay,
         },
       });
       setPublishResult((items) => ({ ...items, [project.id]: next }));
@@ -986,6 +1076,21 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
                     onRebind={rebindProject}
                     onCopy={copyPublishAppResourceCommand}
                     onPublish={publishAppResource}
+                    onExport={exportConfig}
+                    onError={setMessage}
+                  />
+                ) : publishPlatform === "mp-alipay" && activeProject ? (
+                  <ProjectPublishMpAlipayCard
+                    project={activeProject}
+                    cliDir={currentSettings.hbuilderx_cli_dir}
+                    publishing={publishingIds.has(activeProject.id)}
+                    result={publishResult[activeProject.id]}
+                    onUpdateProject={updateProject}
+                    onUpdatePublishMpAlipay={updatePublishMpAlipay}
+                    onRemove={removeProject}
+                    onRebind={rebindProject}
+                    onCopy={copyPublishMpAlipayCommand}
+                    onPublish={publishMpAlipay}
                     onExport={exportConfig}
                     onError={setMessage}
                   />
@@ -1713,6 +1818,235 @@ function ProjectPublishAppResourceCard({
   );
 }
 
+function ProjectPublishMpAlipayCard({
+  project,
+  cliDir,
+  publishing,
+  result,
+  onUpdateProject,
+  onUpdatePublishMpAlipay,
+  onRemove,
+  onRebind,
+  onCopy,
+  onPublish,
+  onExport,
+  onError,
+}: {
+  project: HBuilderXProject;
+  cliDir: string;
+  publishing: boolean;
+  result?: HBuilderXPublishResult;
+  onUpdateProject: (id: string, patch: Partial<HBuilderXProject>) => Promise<void>;
+  onUpdatePublishMpAlipay: (
+    id: string,
+    patch: Partial<HBuilderXPublishMpAlipayConfig>,
+  ) => Promise<void>;
+  onRemove: (id: string) => Promise<void>;
+  onRebind: (project: HBuilderXProject) => Promise<void>;
+  onCopy: (project: HBuilderXProject) => Promise<void>;
+  onPublish: (project: HBuilderXProject) => Promise<void>;
+  onExport: (projectId: string) => Promise<void>;
+  onError?: (message: string) => void;
+}) {
+  const config = {
+    ...defaultPublishMpAlipayConfig(),
+    ...project.publish.mp_alipay,
+  };
+  const command = buildPublishMpAlipayDisplayCommand(cliDir, project.path, config);
+  const uploadReady =
+    !config.upload || Boolean(config.appid.trim() && config.privatekey.trim());
+  const canPublish =
+    Boolean(cliDir.trim() && project.path.trim() && uploadReady) && !publishing;
+  const stdout = result?.stdout ?? "";
+  const stderr = result?.stderr ?? "";
+  const hasOutput = publishing || Boolean(result || stdout || stderr);
+
+  async function pickPrivatekey() {
+    const picked = await openDialog({
+      multiple: false,
+      title: "选择支付宝开发工具密钥文件",
+    });
+    if (!picked || typeof picked !== "string") return;
+    await onUpdatePublishMpAlipay(project.id, { privatekey: picked });
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Panel title="项目">
+        <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+          <Field label="名称">
+            <Input
+              value={project.name}
+              onChange={(ev) => void onUpdateProject(project.id, { name: ev.target.value })}
+            />
+          </Field>
+          <Field label="项目路径">
+            <div className="flex gap-2">
+              <Input
+                value={project.path}
+                onChange={(ev) => void onUpdateProject(project.id, { path: ev.target.value })}
+                className="font-mono text-xs"
+              />
+              <Button variant="outline" size="md" onClick={() => void onRebind(project)}>
+                <FolderOpen className="h-4 w-4" />
+                选择
+              </Button>
+            </div>
+          </Field>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OpenWithButton path={project.path} label="打开文件夹" onError={onError} />
+          <Button variant="outline" size="sm" onClick={() => void onExport(project.id)}>
+            <Upload className="h-3.5 w-3.5" />
+            导出此项目
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => void onRemove(project.id)}>
+            <Trash2 className="h-3.5 w-3.5" />
+            删除
+          </Button>
+        </div>
+      </Panel>
+
+      <Panel title="支付宝小程序参数">
+        <p className="mb-3 text-xs text-fg-muted">
+          仅支持 uni-app 项目的 mp-alipay 平台（HBuilderX 3.8.5+）。不开启上传时只编译。
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="小程序 appid">
+            <Input
+              value={config.appid}
+              placeholder="支付宝小程序 appid"
+              onChange={(ev) =>
+                void onUpdatePublishMpAlipay(project.id, { appid: ev.target.value })
+              }
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field label="版本号（留空读取 manifest.json）">
+            <Input
+              value={config.version}
+              placeholder="1.0.0"
+              onChange={(ev) =>
+                void onUpdatePublishMpAlipay(project.id, { version: ev.target.value })
+              }
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field label="发布描述">
+            <Input
+              value={config.description}
+              placeholder="上传的小程序描述"
+              onChange={(ev) =>
+                void onUpdatePublishMpAlipay(project.id, { description: ev.target.value })
+              }
+            />
+          </Field>
+          <Field label="混合包名（留空则不发混合包）">
+            <Input
+              value={config.sub_package}
+              placeholder="--subPackage"
+              onChange={(ev) =>
+                void onUpdatePublishMpAlipay(project.id, { sub_package: ev.target.value })
+              }
+              className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+        <div className="mt-3 grid gap-3">
+          <ToggleField
+            label="打包后上传到支付宝平台"
+            checked={config.upload}
+            onChange={(checked) =>
+              void onUpdatePublishMpAlipay(project.id, { upload: checked })
+            }
+          />
+          {config.upload && (
+            <Field label="支付宝开发工具密钥文件">
+              <div className="flex gap-2">
+                <Input
+                  value={config.privatekey}
+                  onChange={(ev) =>
+                    void onUpdatePublishMpAlipay(project.id, { privatekey: ev.target.value })
+                  }
+                  className="font-mono text-xs"
+                />
+                <Button variant="outline" size="md" onClick={() => void pickPrivatekey()}>
+                  <FolderOpen className="h-4 w-4" />
+                  选择
+                </Button>
+              </div>
+            </Field>
+          )}
+        </div>
+        {config.upload && (
+          <p className="mt-3 text-xs text-fg-muted">
+            密钥文件在支付宝开放平台「开发工具密钥」中生成并下载，上传时 appid 与密钥均为必填。
+          </p>
+        )}
+      </Panel>
+
+      <Panel title="最终命令">
+        <div className="rounded-lg border border-border bg-bg p-3 font-mono text-xs leading-6 text-fg">
+          {command}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => void onCopy(project)}>
+            <Clipboard className="h-3.5 w-3.5" />
+            复制命令
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!canPublish}
+            onClick={() => void onPublish(project)}
+          >
+            {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+            {publishing ? "正在发行..." : config.upload ? "编译并上传" : "仅编译"}
+          </Button>
+        </div>
+        {!uploadReady && (
+          <div className="mt-2 text-xs text-danger">
+            上传开启时需要填写小程序 appid 和开发工具密钥文件。
+          </div>
+        )}
+      </Panel>
+
+      {hasOutput && (
+        <Panel title="发行结果">
+          <div className="mb-3 flex items-center gap-2 text-sm">
+            {publishing ? (
+              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+            ) : result?.success ? (
+              <CheckCircle2 className="h-4 w-4 text-success" />
+            ) : (
+              <XCircle className="h-4 w-4 text-danger" />
+            )}
+            <span>
+              {publishing ? "发行中" : result?.success ? "执行成功" : "执行失败"}
+            </span>
+            <span className="text-xs text-fg-muted">退出码: {result?.exit_code ?? "无"}</span>
+          </div>
+          {result?.error && (
+            <pre className="mb-2 whitespace-pre-wrap rounded bg-danger/10 p-2 text-xs text-danger">
+              {result.error}
+            </pre>
+          )}
+          {(stdout || stderr) && (
+            <Suspense fallback={<TerminalLogFallback />}>
+              <TerminalLog stdout={stdout} stderr={stderr} />
+            </Suspense>
+          )}
+          {publishing && !stdout && !stderr && (
+            <div className="rounded border border-dashed border-border px-3 py-6 text-center text-xs text-fg-muted">
+              正在编译{config.upload ? "并上传" : ""}，完成后显示 CLI 输出，可继续操作窗口。
+            </div>
+          )}
+        </Panel>
+      )}
+    </div>
+  );
+}
+
 function Segment({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
@@ -1872,6 +2206,34 @@ function defaultPublishAppResourceConfig(): HBuilderXPublishAppResourceConfig {
     copy_source_dir: "",
     copy_target_dir: "",
   };
+}
+
+function defaultPublishMpAlipayConfig(): HBuilderXPublishMpAlipayConfig {
+  return {
+    appid: "",
+    upload: false,
+    description: "",
+    version: "",
+    privatekey: "",
+    sub_package: "",
+  };
+}
+
+function buildPublishMpAlipayDisplayCommand(
+  cliDir: string,
+  projectPath: string,
+  options: HBuilderXPublishMpAlipayConfig,
+) {
+  const cli = cliDir.trim() ? `${cliDir.replace(/[\\/]$/, "")}\\cli.exe` : "cli.exe";
+  const parts = [cli, "publish", "--platform", "mp-alipay", "--project", projectPath || "<项目全路径>"];
+  if (options.sub_package.trim()) parts.push("--subPackage", options.sub_package.trim());
+  if (options.upload) {
+    parts.push("--upload", "true", "--appid", options.appid.trim() || "<appid>");
+    if (options.description.trim()) parts.push("--description", options.description.trim());
+    if (options.version.trim()) parts.push("--version", options.version.trim());
+    parts.push("--privatekey", options.privatekey.trim() || "<密钥文件全路径>");
+  }
+  return parts.map(quotePart).join(" ");
 }
 
 function buildDisplayCommand(cliDir: string, projectPath: string, options: HBuilderXRunWebConfig) {

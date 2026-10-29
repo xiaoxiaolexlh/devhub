@@ -229,6 +229,7 @@ impl Default for HBuilderXRunWebConfig {
 pub struct HBuilderXPublishConfig {
     pub web: serde_json::Value,
     pub app_resource: HBuilderXPublishAppResourceConfig,
+    pub mp_alipay: HBuilderXPublishMpAlipayConfig,
 }
 
 impl Default for HBuilderXPublishConfig {
@@ -236,6 +237,7 @@ impl Default for HBuilderXPublishConfig {
         Self {
             web: serde_json::json!({}),
             app_resource: HBuilderXPublishAppResourceConfig::default(),
+            mp_alipay: HBuilderXPublishMpAlipayConfig::default(),
         }
     }
 }
@@ -256,6 +258,38 @@ impl Default for HBuilderXPublishAppResourceConfig {
             copy_enabled: false,
             copy_source_dir: String::new(),
             copy_target_dir: String::new(),
+        }
+    }
+}
+
+/// Config for `cli publish --platform mp-alipay` (支付宝小程序).
+/// See docs/hbuilderx-cli-publish-mp-alipay.md.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HBuilderXPublishMpAlipayConfig {
+    /// 支付宝小程序 appid. Required when uploading.
+    pub appid: String,
+    /// 打包后是否上传到支付宝平台 (`--upload true` only when true).
+    pub upload: bool,
+    /// 上传的小程序描述 (`--description`).
+    pub description: String,
+    /// 上传版本号 (`--version`); empty falls back to manifest.json.
+    pub version: String,
+    /// 支付宝开发工具密钥文件 (`--privatekey`). Required when uploading.
+    pub privatekey: String,
+    /// 混合包名 (`--subPackage`); empty means not a hybrid package.
+    pub sub_package: String,
+}
+
+impl Default for HBuilderXPublishMpAlipayConfig {
+    fn default() -> Self {
+        Self {
+            appid: String::new(),
+            upload: false,
+            description: String::new(),
+            version: String::new(),
+            privatekey: String::new(),
+            sub_package: String::new(),
         }
     }
 }
@@ -579,6 +613,7 @@ fn normalize_paths(mut s: Settings) -> Settings {
                 p.publish.app_resource.copy_source_dir.replace('/', "\\");
             p.publish.app_resource.copy_target_dir =
                 p.publish.app_resource.copy_target_dir.replace('/', "\\");
+            p.publish.mp_alipay.privatekey = p.publish.mp_alipay.privatekey.replace('/', "\\");
         }
         for tool in &mut s.ai_config_tools {
             tool.config_dir = tool.config_dir.replace('/', "\\");
