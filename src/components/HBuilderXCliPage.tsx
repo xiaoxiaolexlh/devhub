@@ -32,9 +32,13 @@ import {
   tauri,
   type HBuilderXAppResourcePlatform,
   type HBuilderXBrowser,
+  type HBuilderXCloudPackAndroidConfig,
+  type HBuilderXCloudPackIosConfig,
+  type HBuilderXCloudPackPlatform,
   type HBuilderXProjectGroup,
   type HBuilderXProject,
   type HBuilderXPublishAppResourceConfig,
+  type HBuilderXPublishCloudPackConfig,
   type HBuilderXPublishMpAlipayConfig,
   type HBuilderXPublishResult,
   type HBuilderXRunExitEvent,
@@ -46,6 +50,18 @@ import {
 } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/stores/app";
+import {
+  publishTaskKey,
+  useHBuilderXPublish,
+  type HBuilderXPublishPlatform,
+} from "@/stores/hbuilderxPublish";
+import {
+  buildPublishCloudPackDisplayCommand,
+  defaultCloudPackAndroidConfig,
+  defaultCloudPackIosConfig,
+  defaultPublishCloudPackConfig,
+  parseCloudPackPlatforms,
+} from "@/lib/hbuilderxCloudPack";
 import {
   CheckCircle2,
   ChevronDown,
@@ -99,7 +115,7 @@ const runPlatforms: Array<{ id: RunPlatform; label: string; enabled: boolean }> 
 ];
 
 const publishPlatforms: Array<{ id: PublishPlatform; label: string; enabled: boolean }> = [
-  { id: "cloud-app", label: "uni-app / uni-app x 发行 - Android/iOS 云打包", enabled: false },
+  { id: "cloud-app", label: "uni-app / uni-app x 发行 - Android/iOS 云打包", enabled: true },
   { id: "local-app-resource", label: "uni-app / uni-app x 发行 - App 生成本地打包资源", enabled: true },
   { id: "harmony-local", label: "uni-app / uni-app x 发行 - 鸿蒙本地打包", enabled: false },
   { id: "harmony-resource", label: "uni-app / uni-app x 发行 - 鸿蒙生成本地打包资源", enabled: false },
@@ -130,16 +146,15 @@ interface ProjectSection {
 
 export function HBuilderXCliPage({ onOpenSettings }: Props) {
   const { settings, saveSettings } = useApp();
-  const [tab, setTab] = useState<CliTab>("run");
+  const { tasks: publishTasks, latestTask, runPublish } = useHBuilderXPublish();
+  const [tab, setTab] = useState<CliTab>(latestTask ? "publish" : "run");
   const [runPlatform, setRunPlatform] = useState<RunPlatform>("web");
-  const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>("local-app-resource");
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [publishPlatform, setPublishPlatform] = useState<PublishPlatform>(latestTask?.platform ?? "local-app-resource");
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(latestTask?.projectId ?? null);
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
   const [stoppedIds, setStoppedIds] = useState<Set<string>>(new Set());
-  const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<Record<string, HBuilderXRunResult>>({});
-  const [publishResult, setPublishResult] = useState<Record<string, HBuilderXPublishResult>>({});
   const [liveLogs, setLiveLogs] = useState<Record<string, LiveRunLog>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [activeDragProjectId, setActiveDragProjectId] = useState<string | null>(null);
@@ -192,6 +207,9 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
       projectById.get(visibleProjectIds[0] ?? orderedProjectIds[0] ?? "") ??
       null,
     [activeProjectId, orderedProjectIds, projectById, projects, visibleProjectIds],
+  );
+  const projectPublishing = Object.values(publishTasks).some(
+    (task) => task.projectId === activeProject?.id && task.running,
   );
 
   useEffect(() => {
@@ -477,6 +495,7 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
         web: {},
         app_resource: defaultPublishAppResourceConfig(),
         mp_alipay: defaultPublishMpAlipayConfig(),
+        cloud_pack: defaultPublishCloudPackConfig(),
       },
     };
     await updateSettings({
@@ -563,8 +582,30 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
     });
   }
 
-  async function removeProject(id: string) {
+  async function updatePublishCloudPack(
+    id: string,
+    patch: Partial<HBuilderXPublishCloudPackConfig>,
+  ) {
     await updateSettings({
+      hbuilderx_projects: currentSettings.hbuilderx_projects.map((project) =>
+        project.id === id
+          ? {
+              ...project,
+              publish: {
+                ...project.publish,
+                cloud_pack: {
+                  ...defaultPublishCloudPackConfig(),
+                  ...project.publish.cloud_pack,
+                  ...patch,
+                },
+              },
+            }
+          : project,
+      ),
+    });
+  }
+
+  async function removeProject(id: string) {    await updateSettings({
       hbuilderx_projects: currentSettings.hbuilderx_projects.filter((project) => project.id !== id),
       hbuilderx_project_groups: projectSections
         .filter((section) => !section.builtin)
@@ -619,6 +660,23 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
         options: {
           ...defaultPublishMpAlipayConfig(),
           ...project.publish.mp_alipay,
+        },
+      });
+      await navigator.clipboard.writeText(preview.command);
+      setMessage("发行命令已复制");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+
+  async function copyPublishCloudPackCommand(project: HBuilderXProject) {
+    try {
+      const preview = await tauri.previewHBuilderXPublishCloudPack({
+        cli_dir: currentSettings.hbuilderx_cli_dir,
+        project_path: project.path,
+        options: {
+          ...defaultPublishCloudPackConfig(),
+          ...project.publish.cloud_pack,
         },
       });
       await navigator.clipboard.writeText(preview.command);
@@ -684,90 +742,53 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
     }
   }
 
-  async function publishAppResource(project: HBuilderXProject) {
-    setPublishingIds((items) => new Set(items).add(project.id));
+  async function publish(
+    project: HBuilderXProject,
+    platform: HBuilderXPublishPlatform,
+    execute: () => Promise<HBuilderXPublishResult>,
+  ) {
     setMessage(null);
-    setPublishResult((items) => {
-      const next = { ...items };
-      delete next[project.id];
-      return next;
-    });
-    try {
-      const next = await tauri.runHBuilderXPublishAppResource({
+    const next = await runPublish(project.id, platform, execute);
+    if (next) setMessage(next.success ? "发行完成" : next.error ?? "发行失败");
+  }
+
+  async function publishAppResource(project: HBuilderXProject) {
+    await publish(project, "local-app-resource", () =>
+      tauri.runHBuilderXPublishAppResource({
         cli_dir: currentSettings.hbuilderx_cli_dir,
         project_path: project.path,
         options: {
           ...defaultPublishAppResourceConfig(),
           ...project.publish.app_resource,
         },
-      });
-      setPublishResult((items) => ({ ...items, [project.id]: next }));
-      setMessage(next.success ? "发行完成" : next.error ?? "发行失败");
-    } catch (e) {
-      setPublishResult((items) => ({
-        ...items,
-        [project.id]: {
-          success: false,
-          command_success: false,
-          exit_code: null,
-          stdout: "",
-          stderr: "",
-          command: "",
-          error: String(e),
-          copy_result: null,
-        },
-      }));
-      setMessage(String(e));
-    } finally {
-      setPublishingIds((items) => {
-        const nextItems = new Set(items);
-        nextItems.delete(project.id);
-        return nextItems;
-      });
-    }
+      }),
+    );
   }
 
   async function publishMpAlipay(project: HBuilderXProject) {
-    setPublishingIds((items) => new Set(items).add(project.id));
-    setMessage(null);
-    setPublishResult((items) => {
-      const next = { ...items };
-      delete next[project.id];
-      return next;
-    });
-    try {
-      const next = await tauri.runHBuilderXPublishMpAlipay({
+    await publish(project, "mp-alipay", () =>
+      tauri.runHBuilderXPublishMpAlipay({
         cli_dir: currentSettings.hbuilderx_cli_dir,
         project_path: project.path,
         options: {
           ...defaultPublishMpAlipayConfig(),
           ...project.publish.mp_alipay,
         },
-      });
-      setPublishResult((items) => ({ ...items, [project.id]: next }));
-      setMessage(next.success ? "发行完成" : next.error ?? "发行失败");
-    } catch (e) {
-      setPublishResult((items) => ({
-        ...items,
-        [project.id]: {
-          success: false,
-          command_success: false,
-          exit_code: null,
-          stdout: "",
-          stderr: "",
-          command: "",
-          error: String(e),
-          copy_result: null,
+      }),
+    );
+  }
+
+  async function publishCloudPack(project: HBuilderXProject) {
+    await publish(project, "cloud-app", () =>
+      tauri.runHBuilderXPublishCloudPack({
+        cli_dir: currentSettings.hbuilderx_cli_dir,
+        project_path: project.path,
+        options: {
+          ...defaultPublishCloudPackConfig(),
+          ...project.publish.cloud_pack,
         },
-      }));
-      setMessage(String(e));
-    } finally {
-      setPublishingIds((items) => {
-        const nextItems = new Set(items);
-        nextItems.delete(project.id);
-        return nextItems;
-      });
-    }
+      }),
+    );
   }
 
   async function stopWeb(project: HBuilderXProject) {
@@ -1064,12 +1085,29 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
                     ))}
                   </div>
                 </Panel>
-                {publishPlatform === "local-app-resource" && activeProject ? (
+                {publishPlatform === "cloud-app" && activeProject ? (
+                  <ProjectPublishCloudPackCard
+                    project={activeProject}
+                    cliDir={currentSettings.hbuilderx_cli_dir}
+                    publishing={publishTasks[publishTaskKey(activeProject.id, "cloud-app")]?.running ?? false}
+                    projectPublishing={projectPublishing}
+                    result={publishTasks[publishTaskKey(activeProject.id, "cloud-app")]?.result}
+                    onUpdateProject={updateProject}
+                    onUpdatePublishCloudPack={updatePublishCloudPack}
+                    onRemove={removeProject}
+                    onRebind={rebindProject}
+                    onCopy={copyPublishCloudPackCommand}
+                    onPublish={publishCloudPack}
+                    onExport={exportConfig}
+                    onError={setMessage}
+                  />
+                ) : publishPlatform === "local-app-resource" && activeProject ? (
                   <ProjectPublishAppResourceCard
                     project={activeProject}
                     cliDir={currentSettings.hbuilderx_cli_dir}
-                    publishing={publishingIds.has(activeProject.id)}
-                    result={publishResult[activeProject.id]}
+                    publishing={publishTasks[publishTaskKey(activeProject.id, "local-app-resource")]?.running ?? false}
+                    projectPublishing={projectPublishing}
+                    result={publishTasks[publishTaskKey(activeProject.id, "local-app-resource")]?.result}
                     onUpdateProject={updateProject}
                     onUpdatePublishAppResource={updatePublishAppResource}
                     onRemove={removeProject}
@@ -1083,8 +1121,9 @@ export function HBuilderXCliPage({ onOpenSettings }: Props) {
                   <ProjectPublishMpAlipayCard
                     project={activeProject}
                     cliDir={currentSettings.hbuilderx_cli_dir}
-                    publishing={publishingIds.has(activeProject.id)}
-                    result={publishResult[activeProject.id]}
+                    publishing={publishTasks[publishTaskKey(activeProject.id, "mp-alipay")]?.running ?? false}
+                    projectPublishing={projectPublishing}
+                    result={publishTasks[publishTaskKey(activeProject.id, "mp-alipay")]?.result}
                     onUpdateProject={updateProject}
                     onUpdatePublishMpAlipay={updatePublishMpAlipay}
                     onRemove={removeProject}
@@ -1545,10 +1584,524 @@ function ProjectRunWebCard({
   );
 }
 
+function ProjectPublishCloudPackCard({
+  project,
+  cliDir,
+  publishing,
+  projectPublishing,
+  result,
+  onUpdateProject,
+  onUpdatePublishCloudPack,
+  onRemove,
+  onRebind,
+  onCopy,
+  onPublish,
+  onExport,
+  onError,
+}: {
+  project: HBuilderXProject;
+  cliDir: string;
+  publishing: boolean;
+  projectPublishing: boolean;
+  result?: HBuilderXPublishResult;
+  onUpdateProject: (id: string, patch: Partial<HBuilderXProject>) => Promise<void>;
+  onUpdatePublishCloudPack: (
+    id: string,
+    patch: Partial<HBuilderXPublishCloudPackConfig>,
+  ) => Promise<void>;
+  onRemove: (id: string) => Promise<void>;
+  onRebind: (project: HBuilderXProject) => Promise<void>;
+  onCopy: (project: HBuilderXProject) => Promise<void>;
+  onPublish: (project: HBuilderXProject) => Promise<void>;
+  onExport: (projectId: string) => Promise<void>;
+  onError?: (message: string) => void;
+}) {
+  const config = {
+    ...defaultPublishCloudPackConfig(),
+    ...project.publish.cloud_pack,
+  };
+  const android = {
+    ...defaultCloudPackAndroidConfig(),
+    ...config.android,
+  };
+  const ios = {
+    ...defaultCloudPackIosConfig(),
+    ...config.ios,
+  };
+  const platforms = parseCloudPackPlatforms(config.platform);
+  const packAndroid = platforms.includes("android");
+  const packIos = platforms.includes("ios");
+  const command = buildPublishCloudPackDisplayCommand(cliDir, project.path, config);
+  const androidCertReady =
+    android.androidpacktype !== "0" ||
+    Boolean(
+      android.certalias.trim() &&
+        android.certfile.trim() &&
+        android.certpassword &&
+        android.storepassword,
+    );
+  const androidReady =
+    !packAndroid || Boolean(android.packagename.trim() && androidCertReady);
+  const iosCertFields = [ios.profile.trim(), ios.certfile.trim(), ios.certpassword].filter(Boolean);
+  const iosCertReady = iosCertFields.length === 0 || iosCertFields.length === 3;
+  const iosReady = !packIos || Boolean(ios.bundle.trim() && iosCertReady);
+  const platformReady = platforms.length > 0;
+  const canPublish =
+    Boolean(cliDir.trim() && project.path.trim() && platformReady && androidReady && iosReady) &&
+    !projectPublishing;
+  const stdout = result?.stdout ?? "";
+  const stderr = result?.stderr ?? "";
+  const hasOutput = publishing || Boolean(result || stdout || stderr);
+
+  function updateAndroid(patch: Partial<HBuilderXCloudPackAndroidConfig>) {
+    void onUpdatePublishCloudPack(project.id, { android: { ...android, ...patch } });
+  }
+
+  function updateIos(patch: Partial<HBuilderXCloudPackIosConfig>) {
+    void onUpdatePublishCloudPack(project.id, { ios: { ...ios, ...patch } });
+  }
+
+  async function pickAndroidCert() {
+    const picked = await openDialog({
+      multiple: false,
+      title: "选择 Android 证书文件",
+    });
+    if (picked && typeof picked === "string") updateAndroid({ certfile: picked });
+  }
+
+  async function pickIosProfile() {
+    const picked = await openDialog({
+      multiple: false,
+      title: "选择 iOS profile 文件",
+    });
+    if (picked && typeof picked === "string") updateIos({ profile: picked });
+  }
+
+  async function pickIosCert() {
+    const picked = await openDialog({
+      multiple: false,
+      title: "选择 iOS p12 证书文件",
+    });
+    if (picked && typeof picked === "string") updateIos({ certfile: picked });
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Panel title="项目">
+        <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+          <Field label="名称">
+            <Input
+              value={project.name}
+              onChange={(ev) => void onUpdateProject(project.id, { name: ev.target.value })}
+            />
+          </Field>
+          <Field label="项目路径">
+            <div className="flex gap-2">
+              <Input
+                value={project.path}
+                onChange={(ev) => void onUpdateProject(project.id, { path: ev.target.value })}
+                className="font-mono text-xs"
+              />
+              <Button variant="outline" size="md" onClick={() => void onRebind(project)}>
+                <FolderOpen className="h-4 w-4" />
+                选择
+              </Button>
+            </div>
+          </Field>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OpenWithButton path={project.path} label="打开文件夹" onError={onError} />
+          <Button variant="outline" size="sm" onClick={() => void onExport(project.id)}>
+            <Upload className="h-3.5 w-3.5" />
+            导出此项目
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => void onRemove(project.id)}>
+            <Trash2 className="h-3.5 w-3.5" />
+            删除
+          </Button>
+        </div>
+      </Panel>
+
+      <Panel title="打包平台与选项">
+        <p className="mb-3 text-xs text-fg-muted">
+          云打包前需要先启动 HBuilderX（在安装目录执行 cli open），任务会在 DCloud 云端排队执行。
+          支持 uni-app 与 uni-app x（app-android / app-ios）。
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="打包平台">
+            <Select
+              value={config.platform}
+              onChange={(ev) =>
+                void onUpdatePublishCloudPack(project.id, {
+                  platform: ev.target.value as HBuilderXCloudPackPlatform,
+                })
+              }
+            >
+              <option value="android">Android</option>
+              <option value="ios">iOS</option>
+              <option value="android,ios">Android + iOS</option>
+            </Select>
+          </Field>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <ToggleField
+            label="自定义基座"
+            checked={config.iscustom}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { iscustom: checked })
+            }
+          />
+          <ToggleField
+            label="生成 SourceMap"
+            checked={config.source_map}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { source_map: checked })
+            }
+          />
+          <ToggleField
+            label="安心打包（仅 uni-app）"
+            checked={config.safemode}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { safemode: checked })
+            }
+          />
+          <ToggleField
+            label="代码混淆（仅 uni-app）"
+            checked={config.isconfusion}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { isconfusion: checked })
+            }
+          />
+          <ToggleField
+            label="生成 dSYM（仅 uni-app，5.14+）"
+            checked={config.dsyms}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { dsyms: checked })
+            }
+          />
+          <ToggleField
+            label="warning 不中断（5.14+）"
+            checked={config.ignore_warnings}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { ignore_warnings: checked })
+            }
+          />
+        </div>
+      </Panel>
+
+      {packAndroid && (
+        <Panel title="Android 参数">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Android 包名（必填）">
+              <Input
+                value={android.packagename}
+                placeholder="com.example.app"
+                onChange={(ev) => updateAndroid({ packagename: ev.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field label="证书类型">
+              <Select
+                value={android.androidpacktype}
+                onChange={(ev) => updateAndroid({ androidpacktype: ev.target.value })}
+              >
+                <option value="0">0 - 自有证书</option>
+                <option value="1">1 - 公共证书</option>
+                <option value="2">2 - 老版证书（仅 uni-app）</option>
+                <option value="3">3 - 云端证书（仅 uni-app）</option>
+              </Select>
+            </Field>
+          </div>
+          {android.androidpacktype === "0" && (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <Field label="证书别名">
+                <Input
+                  value={android.certalias}
+                  onChange={(ev) => updateAndroid({ certalias: ev.target.value })}
+                  className="font-mono text-xs"
+                />
+              </Field>
+              <Field label="证书文件">
+                <div className="flex gap-2">
+                  <Input
+                    value={android.certfile}
+                    onChange={(ev) => updateAndroid({ certfile: ev.target.value })}
+                    className="font-mono text-xs"
+                  />
+                  <Button variant="outline" size="md" onClick={() => void pickAndroidCert()}>
+                    <FolderOpen className="h-4 w-4" />
+                    选择
+                  </Button>
+                </div>
+              </Field>
+              <Field label="证书密码">
+                <Input
+                  type="password"
+                  value={android.certpassword}
+                  onChange={(ev) => updateAndroid({ certpassword: ev.target.value })}
+                />
+              </Field>
+              <Field label="证书库密码">
+                <Input
+                  type="password"
+                  value={android.storepassword}
+                  onChange={(ev) => updateAndroid({ storepassword: ev.target.value })}
+                />
+              </Field>
+            </div>
+          )}
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <Field label="渠道包（逗号分隔，留空不生成）">
+              <Input
+                value={android.channels}
+                placeholder="google,huawei,xiaomi,oppo,vivo"
+                onChange={(ev) => updateAndroid({ channels: ev.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <ToggleField
+              label="防重签：绑定 appid（仅 uni-app）"
+              checked={android.anti_resign_appid}
+              onChange={(checked) => updateAndroid({ anti_resign_appid: checked })}
+            />
+            <ToggleField
+              label="防重签：绑定包名（仅 uni-app）"
+              checked={android.anti_resign_package_name}
+              onChange={(checked) => updateAndroid({ anti_resign_package_name: checked })}
+            />
+            <ToggleField
+              label="防重签：绑定签名（仅 uni-app）"
+              checked={android.anti_resign_certificate}
+              onChange={(checked) => updateAndroid({ anti_resign_certificate: checked })}
+            />
+          </div>
+          <p className="mt-2 text-xs text-fg-muted">
+            防重签需要 uni-app 项目与 HBuilderX 5.14+。自有证书需要文件真实存在。
+          </p>
+        </Panel>
+      )}
+
+      {packIos && (
+        <Panel title="iOS 参数">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="App ID（必填）">
+              <Input
+                value={ios.bundle}
+                placeholder="com.example.app"
+                onChange={(ev) => updateIos({ bundle: ev.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field label="支持的设备">
+              <Select
+                value={ios.supporteddevice}
+                onChange={(ev) => updateIos({ supporteddevice: ev.target.value })}
+              >
+                <option value="iPhone">iPhone</option>
+                <option value="iPad">iPad</option>
+                <option value="iPhone,iPad">iPhone + iPad</option>
+              </Select>
+            </Field>
+            <Field label="渠道">
+              <Select
+                value={ios.channels}
+                onChange={(ev) => updateIos({ channels: ev.target.value })}
+              >
+                <option value="">默认（phone）</option>
+                <option value="phone">phone</option>
+                <option value="simulator">simulator（仅 macOS）</option>
+                <option value="phone,simulator">phone + simulator</option>
+              </Select>
+            </Field>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <Field label="profile 文件">
+              <div className="flex gap-2">
+                <Input
+                  value={ios.profile}
+                  onChange={(ev) => updateIos({ profile: ev.target.value })}
+                  className="font-mono text-xs"
+                />
+                <Button variant="outline" size="md" onClick={() => void pickIosProfile()}>
+                  <FolderOpen className="h-4 w-4" />
+                  选择
+                </Button>
+              </div>
+            </Field>
+            <Field label="p12 证书文件">
+              <div className="flex gap-2">
+                <Input
+                  value={ios.certfile}
+                  onChange={(ev) => updateIos({ certfile: ev.target.value })}
+                  className="font-mono text-xs"
+                />
+                <Button variant="outline" size="md" onClick={() => void pickIosCert()}>
+                  <FolderOpen className="h-4 w-4" />
+                  选择
+                </Button>
+              </div>
+            </Field>
+            <Field label="证书密码">
+              <Input
+                type="password"
+                value={ios.certpassword}
+                onChange={(ev) => updateIos({ certpassword: ev.target.value })}
+              />
+            </Field>
+          </div>
+          <p className="mt-2 text-xs text-fg-muted">
+            使用自定义证书时，profile、p12 和证书密码需要同时填写；都不填则由 CLI 处理。
+          </p>
+        </Panel>
+      )}
+
+      <Panel title="广告与变现">
+        <div className="grid gap-2 md:grid-cols-2">
+          <ToggleField
+            label="开屏广告"
+            checked={config.splashads}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { splashads: checked })
+            }
+          />
+          <ToggleField
+            label="激励视频广告"
+            checked={config.unimpads}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { unimpads: checked })
+            }
+          />
+          <ToggleField
+            label="悬浮红包广告（仅 uni-app）"
+            checked={config.rpads}
+            onChange={(checked) =>
+              void onUpdatePublishCloudPack(project.id, { rpads: checked })
+            }
+          />
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <Field label="国内广告 SDK（逗号分隔）">
+            <Input
+              value={config.ad_domestic}
+              placeholder="gdt,ks,bd"
+              onChange={(ev) =>
+                void onUpdatePublishCloudPack(project.id, { ad_domestic: ev.target.value })
+              }
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field label="海外广告 SDK（逗号分隔）">
+            <Input
+              value={config.ad_international}
+              placeholder="gg,unity,applovin"
+              onChange={(ev) =>
+                void onUpdatePublishCloudPack(project.id, {
+                  ad_international: ev.target.value,
+                })
+              }
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field label="内容变现 SDK（逗号分隔，仅 uni-app）">
+            <Input
+              value={config.ad_content}
+              placeholder="ks-content,gm-content"
+              onChange={(ev) =>
+                void onUpdatePublishCloudPack(project.id, { ad_content: ev.target.value })
+              }
+              className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+        <p className="mt-2 text-xs text-fg-muted">
+          广告 SDK 需要 HBuilderX 5.14+；dSYM、防重签同样需要 5.14+。
+        </p>
+      </Panel>
+
+      <Panel title="最终命令">
+        <div className="rounded-lg border border-border bg-bg p-3 font-mono text-xs leading-6 text-fg">
+          {command}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => void onCopy(project)}>
+            <Clipboard className="h-3.5 w-3.5" />
+            复制命令
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!canPublish}
+            onClick={() => void onPublish(project)}
+          >
+            {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+            {publishing ? "正在打包..." : "开始云打包"}
+          </Button>
+        </div>
+        {projectPublishing && !publishing && (
+          <p className="mt-2 text-xs text-fg-muted">该项目正在执行其他发行任务，请等待完成。</p>
+        )}
+        <p className="mt-2 text-xs text-fg-muted">预览已隐藏证书密码；复制命令会包含完整密码。</p>
+        {!platformReady && (
+          <div className="mt-2 text-xs text-danger">至少选择一个打包平台。</div>
+        )}
+        {platformReady && packAndroid && !androidReady && (
+          <div className="mt-2 text-xs text-danger">
+            Android 云打包需要填写包名；使用自有证书时还需填写别名、证书文件、证书密码和证书库密码。
+          </div>
+        )}
+        {platformReady && packIos && !iosReady && (
+          <div className="mt-2 text-xs text-danger">
+            iOS 云打包需要填写 App ID；自定义证书需要同时填写 profile、p12 证书和证书密码。
+          </div>
+        )}
+      </Panel>
+
+      {hasOutput && (
+        <Panel title="发行结果">
+          <div className="mb-3 flex items-center gap-2 text-sm">
+            {publishing ? (
+              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+            ) : result?.success ? (
+              <CheckCircle2 className="h-4 w-4 text-success" />
+            ) : (
+              <XCircle className="h-4 w-4 text-danger" />
+            )}
+            <span>{publishing ? "打包中" : result?.success ? "执行成功" : "执行失败"}</span>
+            <span className="text-xs text-fg-muted">退出码: {result?.exit_code ?? "无"}</span>
+          </div>
+          {result?.error && (
+            <pre className="mb-2 whitespace-pre-wrap rounded bg-danger/10 p-2 text-xs text-danger">
+              {result.error}
+            </pre>
+          )}
+          {(stdout || stderr) && (
+            <Suspense fallback={<TerminalLogFallback />}>
+              <TerminalLog stdout={stdout} stderr={stderr} />
+            </Suspense>
+          )}
+          {publishing && !stdout && !stderr && (
+            <div className="rounded border border-dashed border-border px-3 py-6 text-center text-xs text-fg-muted">
+              云打包在云端排队，完成后显示下载地址；等待期间可继续操作窗口。
+            </div>
+          )}
+          {result?.success && stdout.includes("下载地址") && (
+            <p className="mt-3 text-xs text-fg-muted">
+              传统打包的下载地址为临时地址，只能下载 5 次，请及时保存安装包。
+            </p>
+          )}
+        </Panel>
+      )}
+    </div>
+  );
+}
+
 function ProjectPublishAppResourceCard({
   project,
   cliDir,
   publishing,
+  projectPublishing,
   result,
   onUpdateProject,
   onUpdatePublishAppResource,
@@ -1562,6 +2115,7 @@ function ProjectPublishAppResourceCard({
   project: HBuilderXProject;
   cliDir: string;
   publishing: boolean;
+  projectPublishing: boolean;
   result?: HBuilderXPublishResult;
   onUpdateProject: (id: string, patch: Partial<HBuilderXProject>) => Promise<void>;
   onUpdatePublishAppResource: (
@@ -1583,7 +2137,7 @@ function ProjectPublishAppResourceCard({
   const copyReady =
     !config.copy_enabled ||
     Boolean(config.copy_source_dir.trim() && config.copy_target_dir.trim());
-  const canPublish = Boolean(cliDir.trim() && project.path.trim() && copyReady) && !publishing;
+  const canPublish = Boolean(cliDir.trim() && project.path.trim() && copyReady) && !projectPublishing;
   const stdout = result?.stdout ?? "";
   const stderr = result?.stderr ?? "";
   const hasOutput = publishing || Boolean(result || stdout || stderr);
@@ -1741,6 +2295,9 @@ function ProjectPublishAppResourceCard({
             生成本地打包资源
           </Button>
         </div>
+        {projectPublishing && !publishing && (
+          <p className="mt-2 text-xs text-fg-muted">该项目正在执行其他发行任务，请等待完成。</p>
+        )}
         {config.copy_enabled && !copyReady && (
           <div className="mt-2 text-xs text-danger">复制开启时需要填写源文件夹和目标文件夹。</div>
         )}
@@ -1822,6 +2379,7 @@ function ProjectPublishMpAlipayCard({
   project,
   cliDir,
   publishing,
+  projectPublishing,
   result,
   onUpdateProject,
   onUpdatePublishMpAlipay,
@@ -1835,6 +2393,7 @@ function ProjectPublishMpAlipayCard({
   project: HBuilderXProject;
   cliDir: string;
   publishing: boolean;
+  projectPublishing: boolean;
   result?: HBuilderXPublishResult;
   onUpdateProject: (id: string, patch: Partial<HBuilderXProject>) => Promise<void>;
   onUpdatePublishMpAlipay: (
@@ -1856,7 +2415,7 @@ function ProjectPublishMpAlipayCard({
   const uploadReady =
     !config.upload || Boolean(config.appid.trim() && config.privatekey.trim());
   const canPublish =
-    Boolean(cliDir.trim() && project.path.trim() && uploadReady) && !publishing;
+    Boolean(cliDir.trim() && project.path.trim() && uploadReady) && !projectPublishing;
   const stdout = result?.stdout ?? "";
   const stderr = result?.stderr ?? "";
   const hasOutput = publishing || Boolean(result || stdout || stderr);
@@ -2004,6 +2563,9 @@ function ProjectPublishMpAlipayCard({
             {publishing ? "正在发行..." : config.upload ? "编译并上传" : "仅编译"}
           </Button>
         </div>
+        {projectPublishing && !publishing && (
+          <p className="mt-2 text-xs text-fg-muted">该项目正在执行其他发行任务，请等待完成。</p>
+        )}
         {!uploadReady && (
           <div className="mt-2 text-xs text-danger">
             上传开启时需要填写小程序 appid 和开发工具密钥文件。

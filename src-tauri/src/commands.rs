@@ -2,7 +2,8 @@ use crate::editors::Editor;
 use crate::scanner::{self, Extension};
 use crate::settings::{
     self, AiConfigTool, HBuilderXProject, HBuilderXProjectGroup, HBuilderXPublishAppResourceConfig,
-    HBuilderXPublishMpAlipayConfig, HBuilderXRunWebConfig, OpenMethod, OpenMethodKind, Settings,
+    HBuilderXPublishCloudPackConfig, HBuilderXPublishMpAlipayConfig, HBuilderXRunWebConfig,
+    OpenMethod, OpenMethodKind, Settings,
 };
 use crate::syncer::{
     self, CopyResultItem, CopyTask, ProjectConfigEntry, ProjectConfigResultItem, ProjectConfigTask,
@@ -84,6 +85,13 @@ pub struct HBuilderXPublishMpAlipayRequest {
     pub cli_dir: String,
     pub project_path: String,
     pub options: HBuilderXPublishMpAlipayConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HBuilderXPublishCloudPackRequest {
+    pub cli_dir: String,
+    pub project_path: String,
+    pub options: HBuilderXPublishCloudPackConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -433,6 +441,87 @@ fn run_hbuilderx_publish_mp_alipay_sync(
     request: HBuilderXPublishMpAlipayRequest,
 ) -> HBuilderXPublishResult {
     let preview = match build_hbuilderx_publish_mp_alipay_command(&request) {
+        Ok(preview) => preview,
+        Err(error) => {
+            return HBuilderXPublishResult {
+                success: false,
+                command_success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                command: String::new(),
+                error: Some(error),
+                copy_result: None,
+            }
+        }
+    };
+
+    let mut command = Command::new(&preview.cli_path);
+    command.args(&preview.args);
+    configure_hidden_process(&mut command);
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) => {
+            return HBuilderXPublishResult {
+                success: false,
+                command_success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                command: preview.command,
+                error: Some(error.to_string()),
+                copy_result: None,
+            }
+        }
+    };
+
+    let command_success = output.status.success();
+    let stdout = clean_process_output(&decode_process_bytes(&output.stdout));
+    let stderr = clean_process_output(&decode_process_bytes(&output.stderr));
+    let error = if command_success {
+        None
+    } else if stderr.trim().is_empty() {
+        Some(format!(
+            "HBuilderX CLI exited with status {}",
+            output.status
+        ))
+    } else {
+        Some(stderr.clone())
+    };
+
+    HBuilderXPublishResult {
+        success: command_success,
+        command_success,
+        exit_code: output.status.code(),
+        stdout,
+        stderr,
+        command: preview.command,
+        error,
+        copy_result: None,
+    }
+}
+
+#[tauri::command]
+pub fn preview_hbuilderx_publish_cloud_pack(
+    request: HBuilderXPublishCloudPackRequest,
+) -> Result<HBuilderXCommandPreview, String> {
+    build_hbuilderx_publish_cloud_pack_command(&request)
+}
+
+#[tauri::command]
+pub async fn run_hbuilderx_publish_cloud_pack(
+    request: HBuilderXPublishCloudPackRequest,
+) -> Result<HBuilderXPublishResult, String> {
+    run_hbuilderx_publish_task(move || {
+        run_hbuilderx_publish_cloud_pack_sync(request)
+    })
+    .await
+}
+
+fn run_hbuilderx_publish_cloud_pack_sync(
+    request: HBuilderXPublishCloudPackRequest,
+) -> HBuilderXPublishResult {
+    let preview = match build_hbuilderx_publish_cloud_pack_command(&request) {
         Ok(preview) => preview,
         Err(error) => {
             return HBuilderXPublishResult {
@@ -1632,6 +1721,213 @@ fn build_hbuilderx_publish_mp_alipay_command(
     })
 }
 
+fn normalize_cloud_pack_platforms(raw: &str) -> Result<Vec<String>, String> {
+    let mut platforms = Vec::new();
+    for part in raw.split(',') {
+        let value = part.trim().to_ascii_lowercase();
+        if value.is_empty() {
+            continue;
+        }
+        if value != "android" && value != "ios" {
+            return Err(format!(
+                "unsupported cloud pack platform: {value}. Use android, ios, or android,ios"
+            ));
+        }
+        if !platforms.iter().any(|item| item == &value) {
+            platforms.push(value);
+        }
+    }
+    if platforms.is_empty() {
+        return Err("请至少选择一个云打包平台（android 或 ios）".into());
+    }
+    Ok(platforms)
+}
+
+fn build_hbuilderx_publish_cloud_pack_command(
+    request: &HBuilderXPublishCloudPackRequest,
+) -> Result<HBuilderXCommandPreview, String> {
+    let cli_path = resolve_cli_path(&request.cli_dir)?;
+    let project_path = canonical_project_path(&request.project_path)?;
+    let options = &request.options;
+    let platforms = normalize_cloud_pack_platforms(&options.platform)?;
+    let pack_android = platforms.iter().any(|item| item == "android");
+    let pack_ios = platforms.iter().any(|item| item == "ios");
+
+    let mut args = vec![
+        "pack".to_string(),
+        "--project".to_string(),
+        path_to_display_string(&project_path),
+        "--platform".to_string(),
+        platforms.join(","),
+    ];
+
+    for (flag, enabled) in [
+        ("--iscustom", options.iscustom),
+        ("--safemode", options.safemode),
+        ("--sourceMap", options.source_map),
+        ("--dsyms", options.dsyms),
+        ("--isconfusion", options.isconfusion),
+        ("--splashads", options.splashads),
+        ("--rpads", options.rpads),
+        ("--unimpads", options.unimpads),
+        ("--ignoreWarnings", options.ignore_warnings),
+    ] {
+        if enabled {
+            args.push(flag.into());
+            args.push("true".into());
+        }
+    }
+
+    for (flag, value) in [
+        ("--ad.domestic", options.ad_domestic.trim()),
+        ("--ad.international", options.ad_international.trim()),
+        ("--ad.content", options.ad_content.trim()),
+    ] {
+        if !value.is_empty() {
+            args.push(flag.into());
+            args.push(value.to_string());
+        }
+    }
+
+    if pack_android {
+        let packagename = options.android.packagename.trim();
+        if packagename.is_empty() {
+            return Err("Android 云打包需要填写包名（--android.packagename）".into());
+        }
+
+        let packtype = match options.android.androidpacktype.trim() {
+            "" => "1",
+            value => value,
+        };
+        if !matches!(packtype, "0" | "1" | "2" | "3") {
+            return Err(format!(
+                "不支持的 Android 证书类型: {packtype}。可选值: 0、1、2、3"
+            ));
+        }
+
+        let certalias = options.android.certalias.trim();
+        let certfile = options.android.certfile.trim();
+        let certpassword = options.android.certpassword.as_str();
+        let storepassword = options.android.storepassword.as_str();
+        if packtype == "0" {
+            if certalias.is_empty() {
+                return Err("使用自有证书需要填写证书别名（--android.certalias）".into());
+            }
+            if certfile.is_empty() {
+                return Err("使用自有证书需要填写证书文件（--android.certfile）".into());
+            }
+            let cert_path = PathBuf::from(normalize_input_path(certfile));
+            if !cert_path.is_file() {
+                return Err(format!("Android 证书文件不存在: {certfile}"));
+            }
+            if certpassword.is_empty() {
+                return Err("使用自有证书需要填写证书密码（--android.certpassword）".into());
+            }
+            if storepassword.is_empty() {
+                return Err("使用自有证书需要填写证书库密码（--android.storepassword）".into());
+            }
+        }
+
+        args.push("--android.packagename".into());
+        args.push(packagename.to_string());
+        args.push("--android.androidpacktype".into());
+        args.push(packtype.to_string());
+        if packtype == "0" {
+            args.push("--android.certalias".into());
+            args.push(certalias.to_string());
+            args.push("--android.certfile".into());
+            args.push(path_to_display_string(&PathBuf::from(normalize_input_path(
+                certfile,
+            ))));
+            args.push("--android.certpassword".into());
+            args.push(certpassword.to_string());
+            args.push("--android.storepassword".into());
+            args.push(storepassword.to_string());
+        }
+        let channels = options.android.channels.trim();
+        if !channels.is_empty() {
+            args.push("--android.channels".into());
+            args.push(channels.to_string());
+        }
+        for (flag, enabled) in [
+            ("--android.antiResignAppid", options.android.anti_resign_appid),
+            (
+                "--android.antiResignPackageName",
+                options.android.anti_resign_package_name,
+            ),
+            (
+                "--android.antiResignCertificate",
+                options.android.anti_resign_certificate,
+            ),
+        ] {
+            if enabled {
+                args.push(flag.into());
+                args.push("true".into());
+            }
+        }
+    }
+
+    if pack_ios {
+        let bundle = options.ios.bundle.trim();
+        if bundle.is_empty() {
+            return Err("iOS 云打包需要填写 App ID（--ios.bundle）".into());
+        }
+
+        let profile = options.ios.profile.trim();
+        let certfile = options.ios.certfile.trim();
+        let certpassword = options.ios.certpassword.as_str();
+        let uses_custom_cert = !profile.is_empty() || !certfile.is_empty() || !certpassword.is_empty();
+        if uses_custom_cert
+            && (profile.is_empty() || certfile.is_empty() || certpassword.is_empty())
+        {
+            return Err("iOS 自定义证书需要同时填写 profile、p12 证书和证书密码".into());
+        }
+        if uses_custom_cert {
+            let profile_path = PathBuf::from(normalize_input_path(profile));
+            if !profile_path.is_file() {
+                return Err(format!("iOS profile 文件不存在: {profile}"));
+            }
+            let cert_path = PathBuf::from(normalize_input_path(certfile));
+            if !cert_path.is_file() {
+                return Err(format!("iOS 证书文件不存在: {certfile}"));
+            }
+        }
+
+        args.push("--ios.bundle".into());
+        args.push(bundle.to_string());
+        let supporteddevice = options.ios.supporteddevice.trim();
+        if !supporteddevice.is_empty() {
+            args.push("--ios.supporteddevice".into());
+            args.push(supporteddevice.to_string());
+        }
+        let channels = options.ios.channels.trim();
+        if !channels.is_empty() {
+            args.push("--ios.channels".into());
+            args.push(channels.to_string());
+        }
+        if uses_custom_cert {
+            args.push("--ios.profile".into());
+            args.push(path_to_display_string(&PathBuf::from(normalize_input_path(
+                profile,
+            ))));
+            args.push("--ios.certfile".into());
+            args.push(path_to_display_string(&PathBuf::from(normalize_input_path(
+                certfile,
+            ))));
+            args.push("--ios.certpassword".into());
+            args.push(certpassword.to_string());
+        }
+    }
+
+    let cli_path = path_to_display_string(&cli_path);
+    let command = display_command(&cli_path, &args);
+    Ok(HBuilderXCommandPreview {
+        cli_path,
+        args,
+        command,
+    })
+}
+
 fn copy_folder_contents(source_dir: &str, target_dir: &str) -> FolderCopyResult {
     let source_input = normalize_input_path(source_dir.trim());
     let target_input = normalize_input_path(target_dir.trim());
@@ -2449,6 +2745,180 @@ mod tests {
         };
         let error = build_hbuilderx_publish_mp_alipay_command(&with_appid).unwrap_err();
         assert!(error.contains("密钥文件不存在"));
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cloud_pack_command_builds_android_public_cert() {
+        let (cli_dir, project_dir, _) = temp_hbx_fixture("cloud-pack-android");
+        let request = HBuilderXPublishCloudPackRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishCloudPackConfig {
+                android: crate::settings::HBuilderXCloudPackAndroidConfig {
+                    packagename: "com.example.app".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+        let preview = build_hbuilderx_publish_cloud_pack_command(&request).unwrap();
+        assert_eq!(preview.args[0], "pack");
+        let joined = preview.args.join(" ");
+        assert!(joined.contains("--platform android"));
+        assert!(joined.contains("--android.packagename com.example.app"));
+        assert!(joined.contains("--android.androidpacktype 1"));
+        assert!(!joined.contains("--ios."));
+        assert!(!joined.contains("--safemode"));
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cloud_pack_command_appends_platform_flags_and_ios() {
+        let (cli_dir, project_dir, _) = temp_hbx_fixture("cloud-pack-ios");
+        let request = HBuilderXPublishCloudPackRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishCloudPackConfig {
+                platform: "android,ios".into(),
+                source_map: true,
+                splashads: true,
+                ad_domestic: "gdt,ks".into(),
+                android: crate::settings::HBuilderXCloudPackAndroidConfig {
+                    packagename: "com.example.app".into(),
+                    channels: "google,huawei".into(),
+                    ..Default::default()
+                },
+                ios: crate::settings::HBuilderXCloudPackIosConfig {
+                    bundle: "com.example.app".into(),
+                    supporteddevice: "iPhone,iPad".into(),
+                    channels: "simulator".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+        let preview = build_hbuilderx_publish_cloud_pack_command(&request).unwrap();
+        let joined = preview.args.join(" ");
+        assert!(joined.contains("--platform android,ios"));
+        assert!(joined.contains("--sourceMap true"));
+        assert!(joined.contains("--splashads true"));
+        assert!(joined.contains("--ad.domestic gdt,ks"));
+        assert!(joined.contains("--android.channels google,huawei"));
+        assert!(joined.contains("--ios.bundle com.example.app"));
+        assert!(joined.contains("--ios.supporteddevice iPhone,iPad"));
+        assert!(joined.contains("--ios.channels simulator"));
+        assert!(!joined.contains("--ios.profile"));
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cloud_pack_command_preserves_password_whitespace() {
+        let (cli_dir, project_dir, certfile) = temp_hbx_fixture("cloud-pack-passwords");
+        let mut request = HBuilderXPublishCloudPackRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishCloudPackConfig {
+                platform: "android,ios".into(),
+                android: crate::settings::HBuilderXCloudPackAndroidConfig {
+                    packagename: "com.example.app".into(),
+                    androidpacktype: "0".into(),
+                    certalias: "alias".into(),
+                    certfile: certfile.to_string_lossy().to_string(),
+                    ..Default::default()
+                },
+                ios: crate::settings::HBuilderXCloudPackIosConfig {
+                    bundle: "com.example.app".into(),
+                    profile: certfile.to_string_lossy().to_string(),
+                    certfile: certfile.to_string_lossy().to_string(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+
+        for password in [" leading and trailing ", "   "] {
+            request.options.android.certpassword = password.into();
+            request.options.android.storepassword = password.into();
+            request.options.ios.certpassword = password.into();
+            let preview = build_hbuilderx_publish_cloud_pack_command(&request).unwrap();
+            for flag in [
+                "--android.certpassword",
+                "--android.storepassword",
+                "--ios.certpassword",
+            ] {
+                let pair = preview.args.windows(2).find(|pair| pair[0] == flag).unwrap();
+                assert_eq!(pair[1], password, "{flag} must preserve the original password");
+                assert!(preview.command.contains(&format!("{flag} \"{password}\"")));
+            }
+        }
+
+        fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn cloud_pack_command_validates_required_fields() {
+        let (cli_dir, project_dir, _) = temp_hbx_fixture("cloud-pack-invalid");
+        let base = HBuilderXPublishCloudPackRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishCloudPackConfig::default(),
+        };
+
+        let error = build_hbuilderx_publish_cloud_pack_command(&base).unwrap_err();
+        assert!(error.contains("包名"));
+
+        let mut ios = base;
+        ios.options.platform = "ios".into();
+        let error = build_hbuilderx_publish_cloud_pack_command(&ios).unwrap_err();
+        assert!(error.contains("App ID"));
+
+        let mut own_cert = HBuilderXPublishCloudPackRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishCloudPackConfig {
+                android: crate::settings::HBuilderXCloudPackAndroidConfig {
+                    packagename: "com.example.app".into(),
+                    androidpacktype: "0".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+        let error = build_hbuilderx_publish_cloud_pack_command(&own_cert).unwrap_err();
+        assert!(error.contains("证书别名"));
+
+        own_cert.options.android.certalias = "alias".into();
+        own_cert.options.android.certfile = if cfg!(windows) {
+            r"C:\devhub\definitely\missing.keystore".into()
+        } else {
+            "/devhub/definitely/missing.keystore".into()
+        };
+        own_cert.options.android.certpassword = "123456".into();
+        own_cert.options.android.storepassword = "123456".into();
+        let error = build_hbuilderx_publish_cloud_pack_command(&own_cert).unwrap_err();
+        assert!(error.contains("证书文件不存在"));
+
+        let mut partial_ios = HBuilderXPublishCloudPackRequest {
+            cli_dir: cli_dir.to_string_lossy().to_string(),
+            project_path: project_dir.to_string_lossy().to_string(),
+            options: HBuilderXPublishCloudPackConfig {
+                platform: "ios".into(),
+                ios: crate::settings::HBuilderXCloudPackIosConfig {
+                    bundle: "com.example.app".into(),
+                    profile: "profile.mobileprovision".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+        let error = build_hbuilderx_publish_cloud_pack_command(&partial_ios).unwrap_err();
+        assert!(error.contains("同时填写"));
+
+        partial_ios.options.platform = "windows".into();
+        let error = build_hbuilderx_publish_cloud_pack_command(&partial_ios).unwrap_err();
+        assert!(error.contains("unsupported cloud pack platform"));
+
         fs::remove_dir_all(cli_dir.parent().unwrap()).ok();
     }
 }

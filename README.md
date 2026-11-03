@@ -18,7 +18,7 @@
 - **AI 配置管理** — 管理 Claude、Codex、OpenCode、Pi、Grok、ZCode 和自定义工具的配置目录，可用资源管理器或内置工作区打开，并导入导出工具清单。
 - **AI 终端管理** — 按项目绑定 AI CLI，在独立 Windows Terminal 窗口中统一启动、切换、新开和精确关闭会话，并可按开关为新会话注入多组临时环境变量。
 - **Node 服务管理** — 添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出。
-- **HBuilderX CLI** — 管理多个 uni-app 项目，通过 HBuilderX CLI 一键运行 WEB、发行 App 本地打包资源和支付宝小程序，支持命令预览、复制与实时输出。
+- **HBuilderX CLI** — 管理多个 uni-app 项目，通过 HBuilderX CLI 一键运行 WEB、发行 Android/iOS 云打包、App 本地打包资源和支付宝小程序，支持命令预览、复制与实时输出。
 - **系统设置** — 集中管理电脑常用设置与快捷电源操作，目前支持一键关闭显示器。
 - **资源管理器右键菜单** — 在「系统设置」中启用 Windows 11 第一层菜单「通过 DevHub 打开」，将文件、文件夹或当前文件夹交给内置工作区。
 - **工具管理** — 内置工具注册表，一键下载官方便携版、检查更新并直接打开（Geek Uninstaller、Everything、GoNavi、DBX、WizTree、Hiddify、CC Switch、Magpie、Notepad--、Argus），并按「系统工具 / 数据库工具 / AI 工具 / 文本编辑器」分组筛选。
@@ -113,24 +113,31 @@
 | 页签 | 平台 | 命令 |
 |---|---|---|
 | 运行 | uni-app / uni-app x 运行 - WEB | `cli launch web --project <项目全路径>` |
+| 发行 | uni-app / uni-app x 发行 - Android/iOS 云打包 | `cli pack --project <项目全路径> --platform android` |
 | 发行 | uni-app / uni-app x 发行 - App 生成本地打包资源 | `cli publish --platform APP --type appResource --project <项目全路径>` |
 | 发行 | uni-app 发行 - 支付宝小程序 | `cli publish --platform mp-alipay --project <项目全路径>` |
 
-其余平台（云打包、鸿蒙、wgt、WEB 发行、小程序等）在界面中列出但暂未实现，点击会提示「暂未实现」。
+其余平台（鸿蒙、wgt、WEB 发行、小程序等）在界面中列出但暂未实现，点击会提示「暂未实现」。
 
 说明:
 
 - 运行 WEB 支持配置 `--browser`、`--ui`、`--compile`、`--continue-on-error`，其中 `--ui` 需要 HBuilderX 5.11+，`launch web` 需要 HBuilderX 5.0+。
+- 云打包支持 Android、iOS 或两者同时；Android 必填包名，iOS 必填 App ID。执行前需先启动 HBuilderX（安装目录执行 `cli open`）。传统打包返回的下载地址为临时地址，只能下载 5 次。
+- Android 证书类型：`0` 自有证书（需别名、证书文件、证书密码、证书库密码）、`1` 公共证书、`2` 老版证书（仅 uni-app）、`3` 云端证书（仅 uni-app）。iOS 自定义证书需同时填写 profile、p12 和证书密码。
+- 云打包界面还提供 SourceMap、自定义基座、安心打包、代码混淆、dSYM、渠道包、防重签、广告 SDK 等开关；标记仅 uni-app 的选项对 uni-app x 不适用，5.14+ 参数需要对应 HBuilderX 版本。
 - App 生成本地打包资源支持 `APP`（通用）、`app-ios`、`app-android`（后两者需要 HBuilderX 4.67-alpha+），并可选择在发行成功后把产物复制到指定目录。
 - 支付宝小程序仅支持 uni-app 项目。不开启上传时只做编译；开启上传后必须填写小程序 appid 和支付宝开发工具密钥文件，才会追加 `--upload true`、`--appid`、`--privatekey`（以及可选的 `--description`、`--version`、`--subPackage`）。版本号留空时读取 `manifest.json` 中的版本号。
 - `--project` 始终传项目文件夹绝对路径，避免同名项目或未导入项目产生歧义。
-- App 本地打包资源和支付宝小程序发行在后台执行，等待 CLI 结束及复制产物时不会阻塞窗口；发行日志在任务结束后统一显示，并非实时输出。
+- 云打包、App 本地打包资源和支付宝小程序发行在后台执行，等待 CLI 结束及复制产物时不会阻塞窗口；发行日志在任务结束后统一显示，并非实时输出。
+- 发行任务和结果在本次应用运行期间保留，切换功能页后可恢复查看；结果按项目和发行类型分别保存，同一项目执行发行时会阻止重复提交。
+- 云打包命令预览隐藏证书密码；执行和复制命令保留密码原值（包括首尾空格），复制出的完整命令包含真实密码。
 - 项目配置可单个或全部导出为 JSON 并再次导入；导入时按项目 `id` 合并，路径不存在的项目会保留，重新绑定路径即可继续使用。
 
 相关文档：
 
 - [HBuilderX CLI 与 Web 运行命令说明](docs/hbuilderx-cli-launch-web.md)
 - [HBuilderX CLI App 生成本地打包资源命令说明](docs/hbuilderx-cli-publish-app-appresource.md)
+- [HBuilderX CLI Android/iOS 云打包命令说明](docs/hbuilderx-cli-pack.md)
 - [HBuilderX CLI 发行支付宝小程序命令说明](docs/hbuilderx-cli-publish-mp-alipay.md)
 
 ## 系统设置

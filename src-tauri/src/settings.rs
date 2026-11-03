@@ -230,6 +230,7 @@ pub struct HBuilderXPublishConfig {
     pub web: serde_json::Value,
     pub app_resource: HBuilderXPublishAppResourceConfig,
     pub mp_alipay: HBuilderXPublishMpAlipayConfig,
+    pub cloud_pack: HBuilderXPublishCloudPackConfig,
 }
 
 impl Default for HBuilderXPublishConfig {
@@ -238,6 +239,7 @@ impl Default for HBuilderXPublishConfig {
             web: serde_json::json!({}),
             app_resource: HBuilderXPublishAppResourceConfig::default(),
             mp_alipay: HBuilderXPublishMpAlipayConfig::default(),
+            cloud_pack: HBuilderXPublishCloudPackConfig::default(),
         }
     }
 }
@@ -290,6 +292,129 @@ impl Default for HBuilderXPublishMpAlipayConfig {
             version: String::new(),
             privatekey: String::new(),
             sub_package: String::new(),
+        }
+    }
+}
+
+/// Config for `cli pack` (Android/iOS 云打包).
+/// See docs/hbuilderx-cli-pack.md.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HBuilderXPublishCloudPackConfig {
+    /// `--platform`: `android`, `ios`, or `android,ios`.
+    pub platform: String,
+    /// `--iscustom`.
+    pub iscustom: bool,
+    /// `--safemode` (uni-app only).
+    pub safemode: bool,
+    /// `--sourceMap`.
+    pub source_map: bool,
+    /// `--dsyms` (uni-app, HBuilderX 5.14+).
+    pub dsyms: bool,
+    /// `--isconfusion` (uni-app only).
+    pub isconfusion: bool,
+    /// `--splashads`.
+    pub splashads: bool,
+    /// `--rpads` (uni-app only).
+    pub rpads: bool,
+    /// `--unimpads`.
+    pub unimpads: bool,
+    /// `--ad.domestic`, comma-separated SDK ids.
+    pub ad_domestic: String,
+    /// `--ad.international`, comma-separated SDK ids.
+    pub ad_international: String,
+    /// `--ad.content`, comma-separated SDK ids (uni-app only).
+    pub ad_content: String,
+    /// `--ignoreWarnings` (HBuilderX 5.14+).
+    pub ignore_warnings: bool,
+    pub android: HBuilderXCloudPackAndroidConfig,
+    pub ios: HBuilderXCloudPackIosConfig,
+}
+
+impl Default for HBuilderXPublishCloudPackConfig {
+    fn default() -> Self {
+        Self {
+            platform: "android".into(),
+            iscustom: false,
+            safemode: false,
+            source_map: false,
+            dsyms: false,
+            isconfusion: false,
+            splashads: false,
+            rpads: false,
+            unimpads: false,
+            ad_domestic: String::new(),
+            ad_international: String::new(),
+            ad_content: String::new(),
+            ignore_warnings: false,
+            android: HBuilderXCloudPackAndroidConfig::default(),
+            ios: HBuilderXCloudPackIosConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HBuilderXCloudPackAndroidConfig {
+    /// `--android.packagename`, required when packing Android.
+    pub packagename: String,
+    /// `--android.androidpacktype`: `0` own cert, `1` public cert,
+    /// `2` legacy DCloud cert (uni-app), `3` cloud cert (uni-app).
+    pub androidpacktype: String,
+    pub certalias: String,
+    pub certfile: String,
+    pub certpassword: String,
+    pub storepassword: String,
+    /// `--android.channels`, comma-separated channel ids.
+    pub channels: String,
+    /// `--android.antiResignAppid` (uni-app, HBuilderX 5.14+).
+    pub anti_resign_appid: bool,
+    /// `--android.antiResignPackageName` (uni-app, HBuilderX 5.14+).
+    pub anti_resign_package_name: bool,
+    /// `--android.antiResignCertificate` (uni-app, HBuilderX 5.14+).
+    pub anti_resign_certificate: bool,
+}
+
+impl Default for HBuilderXCloudPackAndroidConfig {
+    fn default() -> Self {
+        Self {
+            packagename: String::new(),
+            androidpacktype: "1".into(),
+            certalias: String::new(),
+            certfile: String::new(),
+            certpassword: String::new(),
+            storepassword: String::new(),
+            channels: String::new(),
+            anti_resign_appid: false,
+            anti_resign_package_name: false,
+            anti_resign_certificate: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HBuilderXCloudPackIosConfig {
+    /// `--ios.bundle`, required when packing iOS.
+    pub bundle: String,
+    /// `--ios.supporteddevice`: `iPhone`, `iPad`, or `iPhone,iPad`.
+    pub supporteddevice: String,
+    /// `--ios.channels`: `phone`, `simulator`, or both (macOS only).
+    pub channels: String,
+    pub profile: String,
+    pub certfile: String,
+    pub certpassword: String,
+}
+
+impl Default for HBuilderXCloudPackIosConfig {
+    fn default() -> Self {
+        Self {
+            bundle: String::new(),
+            supporteddevice: "iPhone".into(),
+            channels: String::new(),
+            profile: String::new(),
+            certfile: String::new(),
+            certpassword: String::new(),
         }
     }
 }

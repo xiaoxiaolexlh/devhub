@@ -155,10 +155,53 @@ export interface HBuilderXPublishMpAlipayConfig {
   sub_package: string;
 }
 
+export type HBuilderXCloudPackPlatform = "android" | "ios" | "android,ios";
+
+export interface HBuilderXCloudPackAndroidConfig {
+  packagename: string;
+  androidpacktype: string;
+  certalias: string;
+  certfile: string;
+  certpassword: string;
+  storepassword: string;
+  channels: string;
+  anti_resign_appid: boolean;
+  anti_resign_package_name: boolean;
+  anti_resign_certificate: boolean;
+}
+
+export interface HBuilderXCloudPackIosConfig {
+  bundle: string;
+  supporteddevice: string;
+  channels: string;
+  profile: string;
+  certfile: string;
+  certpassword: string;
+}
+
+export interface HBuilderXPublishCloudPackConfig {
+  platform: HBuilderXCloudPackPlatform;
+  iscustom: boolean;
+  safemode: boolean;
+  source_map: boolean;
+  dsyms: boolean;
+  isconfusion: boolean;
+  splashads: boolean;
+  rpads: boolean;
+  unimpads: boolean;
+  ad_domestic: string;
+  ad_international: string;
+  ad_content: string;
+  ignore_warnings: boolean;
+  android: HBuilderXCloudPackAndroidConfig;
+  ios: HBuilderXCloudPackIosConfig;
+}
+
 export interface HBuilderXPublishConfig {
   web: Record<string, unknown>;
   app_resource: HBuilderXPublishAppResourceConfig;
   mp_alipay: HBuilderXPublishMpAlipayConfig;
+  cloud_pack: HBuilderXPublishCloudPackConfig;
 }
 
 export interface HBuilderXProject {
@@ -198,6 +241,12 @@ export interface HBuilderXPublishMpAlipayRequest {
   cli_dir: string;
   project_path: string;
   options: HBuilderXPublishMpAlipayConfig;
+}
+
+export interface HBuilderXPublishCloudPackRequest {
+  cli_dir: string;
+  project_path: string;
+  options: HBuilderXPublishCloudPackConfig;
 }
 
 export interface HBuilderXCommandPreview {
@@ -685,6 +734,18 @@ export const tauri = {
     }),
   runHBuilderXPublishMpAlipay: (request: HBuilderXPublishMpAlipayRequest) =>
     invoke<HBuilderXPublishResult>("run_hbuilderx_publish_mp_alipay", {
+      request,
+    }),
+  previewHBuilderXPublishCloudPack: (
+    request: HBuilderXPublishCloudPackRequest,
+  ) =>
+    invoke<HBuilderXCommandPreview>("preview_hbuilderx_publish_cloud_pack", {
+      request,
+    }),
+  runHBuilderXPublishCloudPack: (
+    request: HBuilderXPublishCloudPackRequest,
+  ) =>
+    invoke<HBuilderXPublishResult>("run_hbuilderx_publish_cloud_pack", {
       request,
     }),
   onHBuilderXRunLog: (handler: (event: HBuilderXRunLogEvent) => void) =>
