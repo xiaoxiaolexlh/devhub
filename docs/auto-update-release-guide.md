@@ -82,3 +82,24 @@ gh release create v0.2.0 \
 - **版本号**:每次发布必须比上一次高,否则客户端不会提示更新。
 - **URL 一致性**:`latest.json` 里的 `url` 必须与实际上传到 Release 的文件名一致。Tauri 构建时自动生成正确的 URL。
 - **私钥安全**:不要把 `tauri.key` 提交到 Git。如果用于 CI/CD,将私钥内容存为 GitHub Secret(`TAURI_SIGNING_PRIVATE_KEY`)。
+
+## 一键发版脚本
+
+```bash
+node tools/release.mjs               # 构建并发布当前版本
+node tools/release.mjs --no-build    # 跳过构建,只发布已有产物
+node tools/release.mjs --notes-only  # 只打印本次将写入 Release 的发版说明
+```
+
+发版说明每次发版都会重新生成:取上一个 `v*` tag 之后到当前 `HEAD` 的提交,去掉 `fix:`/`feat:` 之类的类型前缀与 `Co-Authored-By` 署名,按提交逐条列出,同时写入 Release 正文和 `latest.json` 的 `notes` 字段。
+
+发版说明的提交范围以当前 `tauri.conf.json` 版本号对应的 tag 为界,所以**升版本号的提交必须包含在本次发版里**,否则说明会漏掉前面的提交。
+
+需要手写说明时:
+
+```bash
+node tools/release.mjs --notes "本次修复了 xxx"
+node tools/release.mjs --notes-file docs/release-notes-0.4.9.md
+```
+
+Release 已存在时,脚本会同步更新发版说明并覆盖上传产物,可用于修正上一次发版的说明。
