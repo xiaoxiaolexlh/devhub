@@ -193,6 +193,8 @@ pnpm tauri dev
 
 ### 打包发布
 
+应用发布版本以 `src-tauri/tauri.conf.json` 的 `version` 为准,格式为**主版本号（Major）.次版本号（Minor）.修订号（Patch）**。“次版本号加一”表示中间一段加一、最后一段归零,例如 `0.4.9 → 0.5.0`。版本选择、`0.x.x` 的含义及签名发布步骤见[自动更新发布指南](docs/auto-update-release-guide.md)。
+
 ```powershell
 pnpm tauri build
 ```
