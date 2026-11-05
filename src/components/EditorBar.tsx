@@ -28,6 +28,8 @@ export function EditorBar({ onOpenSettings }: Props) {
     runningEditors,
     scans,
     loading,
+    scanned,
+    scanError,
   } = useApp();
 
   if (!settings) return null;
@@ -61,7 +63,13 @@ export function EditorBar({ onOpenSettings }: Props) {
           ))}
         </select>
         <span className="text-xs text-fg-muted">
-          {sourceScan?.exists ? (
+          {loading ? (
+            <span className="text-fg-subtle">正在扫描扩展...</span>
+          ) : scanError !== null ? (
+            <span className="text-danger">扫描失败，请重试</span>
+          ) : !scanned ? (
+            <span className="text-fg-subtle">尚未扫描扩展</span>
+          ) : sourceScan?.exists ? (
             <>{sourceCount} 个扩展</>
           ) : (
             <span className="text-warning">目录不存在</span>
@@ -103,7 +111,7 @@ export function EditorBar({ onOpenSettings }: Props) {
               >
                 <Checkbox checked={checked} onCheckedChange={() => toggleTarget(e.id)} onClick={(ev) => ev.stopPropagation()} />
                 <span className="font-medium">{e.name}</span>
-                {!exists && (
+                {scanned && !exists && (
                   <Tooltip content={`目录不存在: ${e.path}`}>
                     <FolderX className="h-3.5 w-3.5 text-warning" />
                   </Tooltip>
@@ -137,8 +145,10 @@ export function EditorBar({ onOpenSettings }: Props) {
             variant="ghost"
             size="icon"
             onClick={() => {
-              refresh();
-              refreshRunning();
+              void refresh().catch(() => {
+                // scanError is displayed in the extension table.
+              });
+              void refreshRunning().catch(() => {});
             }}
             disabled={loading}
           >

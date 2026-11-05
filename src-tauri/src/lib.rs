@@ -50,6 +50,23 @@ use tools::{
     tool_launch, tool_list, tool_open_dir, tool_restart_elevated, tool_update,
 };
 
+/// Background colour matching the frontend palette (`--bg` in src/index.css).
+/// Used while the webview has not produced its first frame yet.
+pub(crate) fn window_bg_color(window: &tauri::WebviewWindow, theme: &str) -> tauri::window::Color {
+    let dark = match theme {
+        "dark" => true,
+        "light" => false,
+        // "system": ask the window, which reports the OS theme. Fall back to
+        // the dark background configured for the window.
+        _ => !matches!(window.theme(), Ok(tauri::Theme::Light)),
+    };
+    if dark {
+        tauri::window::Color(0x0f, 0x17, 0x2a, 0xff)
+    } else {
+        tauri::window::Color(0xff, 0xff, 0xff, 0xff)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -164,6 +181,12 @@ pub fn run() {
                 if let Some(main) = app.get_webview_window("main") {
                     let _ = main.close();
                 }
+            } else if let Some(main) = app.get_webview_window("main") {
+                // The window is created hidden (visible: false). Paint it with the
+                // saved theme before showing, so the WebView2 cold start never
+                // flashes the default white background.
+                let _ = main.set_background_color(Some(window_bg_color(&main, &s.theme)));
+                let _ = main.show();
             }
 
             Ok(())

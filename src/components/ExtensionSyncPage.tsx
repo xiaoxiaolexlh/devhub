@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActionBar } from "@/components/ActionBar";
 import { CopyDialog } from "@/components/CopyDialog";
 import { DeleteDialog } from "@/components/DeleteDialog";
@@ -16,10 +16,19 @@ interface Props {
 }
 
 export function ExtensionSyncPage({ onOpenSettings }: Props) {
-  const { selectedFolders, scans, sourceEditorId, setAppMode } = useApp();
+  const { selectedFolders, scans, sourceEditorId, setAppMode, ensureScans } =
+    useApp();
   const [openCopy, setOpenCopy] = useState(false);
   const [openDelete, setOpenDelete] = useState(false);
   const [diffExtId, setDiffExtId] = useState<string | null>(null);
+
+  // Scans are no longer part of app init (they would hold up every launch,
+  // including launches that never touch this workspace).
+  useEffect(() => {
+    void ensureScans().catch(() => {
+      // The store exposes scanError to the table and editor toolbar.
+    });
+  }, [ensureScans]);
 
   function onCompare() {
     const firstFolder = Array.from(selectedFolders)[0];

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useApp, type SortKey } from "@/stores/app";
+import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Input } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -68,6 +69,8 @@ export function ExtensionTable({ onShowDiff }: Props) {
     sortAsc,
     setSort,
     loading,
+    scanError,
+    refresh,
   } = useApp();
 
   const sourceScan = scans.find((s) => s.editor.id === sourceEditorId);
@@ -288,6 +291,25 @@ export function ExtensionTable({ onShowDiff }: Props) {
                   ))}
                 </tr>
               ))
+            ) : scanError !== null ? (
+              <tr>
+                <td colSpan={5 + targetMaps.length} className="px-4 py-16 text-center">
+                  <div role="alert" className="flex flex-col items-center gap-2">
+                    <AlertCircle className="h-8 w-8 text-danger" />
+                    <p className="font-medium text-danger">扫描扩展失败</p>
+                    <p className="max-w-xl break-all text-xs text-fg-muted">{scanError}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void refresh().catch(() => {
+                        // Keep the failure visible and allow another retry.
+                      })}
+                    >
+                      重新扫描
+                    </Button>
+                  </div>
+                </td>
+              </tr>
             ) : sorted.length === 0 ? (
               <tr>
                 <td
@@ -301,7 +323,7 @@ export function ExtensionTable({ onShowDiff }: Props) {
                 </td>
               </tr>
             ) : null}
-            {!loading && sorted.map(({ ext, states }) => {
+            {!loading && scanError === null && sorted.map(({ ext, states }) => {
               const checked = selectedFolders.has(ext.folder_name);
               return (
                 <tr

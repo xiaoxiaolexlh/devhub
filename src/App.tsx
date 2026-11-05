@@ -100,6 +100,12 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // index.html paints a static spinner before any bundle loads; React's own
+  // loading screen supersedes it once this first commit is on screen.
+  useEffect(() => {
+    document.getElementById("boot")?.remove();
+  }, []);
+
   useEffect(() => {
     if (workspaceRoot) {
       void useApp.getState().ensureSettings();
@@ -198,7 +204,7 @@ function App() {
   }, [ready, workspaceRoot]);
 
   if (!workspaceRoot && !ready) {
-    return <LoadingScreen text="正在加载扩展信息..." />;
+    return <LoadingScreen text="正在加载设置..." />;
   }
 
   return (

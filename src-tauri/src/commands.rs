@@ -235,7 +235,7 @@ pub fn list_editors() -> Vec<Editor> {
     SETTINGS.lock().unwrap().editors.clone()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scan_extensions(editor_id: String) -> Result<EditorScan, String> {
     let editors = SETTINGS.lock().unwrap().editors.clone();
     let editor = editors
@@ -246,7 +246,9 @@ pub fn scan_extensions(editor_id: String) -> Result<EditorScan, String> {
     Ok(scan_one(editor))
 }
 
-#[tauri::command]
+// `async` here only moves execution off the main thread (Tauri runs sync
+// commands on it); the body itself stays blocking filesystem work.
+#[tauri::command(async)]
 pub fn scan_all() -> Vec<EditorScan> {
     let editors = SETTINGS.lock().unwrap().editors.clone();
     editors.into_iter().map(scan_one).collect()
@@ -1339,14 +1341,20 @@ pub fn open_path_window(app: &tauri::AppHandle, path: String) -> Result<(), Stri
         .filter(|name| !name.is_empty())
         .unwrap_or(&root_str);
 
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
+    // Created hidden so the theme background colour can be applied before the
+    // window is first shown (same white-flash guard as the main window).
+    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .title(format!("{title} - Workspace"))
         .inner_size(1280.0, 820.0)
         .min_inner_size(960.0, 600.0)
         .resizable(true)
         .decorations(true)
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
+    let theme = SETTINGS.lock().unwrap().theme.clone();
+    let _ = window.set_background_color(Some(crate::window_bg_color(&window, &theme)));
+    let _ = window.show();
     Ok(())
 }
 
@@ -1515,7 +1523,7 @@ pub fn close_terminal_tool_sessions(tool_id: String) -> TerminalActionResult {
     terminal::close_tool_sessions(&tool_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_running_processes(editor_ids: Vec<String>) -> Vec<String> {
     use sysinfo::{ProcessesToUpdate, System};
     let editors = SETTINGS.lock().unwrap().editors.clone();
