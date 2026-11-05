@@ -1,12 +1,14 @@
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use serde::Serialize;
 use std::fs;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 use crate::settings::APP_DATA_DIR;
+
+mod state;
+use state::{ToolState, ToolsState};
 
 // ===== 内置工具注册表 =====
 
@@ -281,23 +283,6 @@ fn find_spec(tool_id: &str) -> Option<ToolSpec> {
     registry().into_iter().find(|s| s.id == tool_id)
 }
 
-// ===== 已装工具状态(tools.json)=====
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ToolState {
-    pub version: String,
-    pub exe_path: String,
-    pub installed_at: String,
-    pub last_checked: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct ToolsState {
-    pub tools: BTreeMap<String, ToolState>,
-}
-
 // ===== 返回给前端的类型 =====
 
 #[derive(Debug, Clone, Serialize)]
@@ -352,34 +337,19 @@ fn state_path() -> PathBuf {
     data_root().join("tools.json")
 }
 
-// ===== 状态文件读写(原子写)=====
+// ===== 状态文件读写 =====
 
-fn load_state() -> ToolsState {
-    let path = state_path();
-    if !path.exists() {
-        return ToolsState::default();
-    }
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+fn load_state() -> Result<ToolsState, String> {
+    state::load(&state_path())
 }
 
-fn save_state(state: &ToolsState) -> Result<(), String> {
-    let dir = data_root();
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = state_path();
-    let json = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, &json).map_err(|e| e.to_string())?;
-    match fs::rename(&tmp, &path) {
-        Ok(()) => Ok(()),
-        Err(_) if path.exists() => {
-            fs::remove_file(&path).map_err(|e| e.to_string())?;
-            fs::rename(&tmp, &path).map_err(|e| e.to_string())
-        }
-        Err(e) => Err(e.to_string()),
-    }
+async fn update_state(
+    edit: impl FnOnce(&mut ToolsState) -> bool + Send + 'static,
+) -> Result<ToolsState, String> {
+    // 文件锁可能等待其它实例,不阻塞 Tauri 的异步执行线程。
+    tauri::async_runtime::spawn_blocking(move || state::update(&state_path(), edit))
+        .await
+        .map_err(|e| format!("工具安装记录保存任务失败: {e}"))?
 }
 
 fn build_item(spec: &ToolSpec, state: &ToolsState) -> ToolListItem {
@@ -406,29 +376,46 @@ fn build_item(spec: &ToolSpec, state: &ToolsState) -> ToolListItem {
 
 #[tauri::command]
 pub fn tool_list() -> Result<Vec<ToolListItem>, String> {
-    let state = load_state();
+    let state = load_state()?;
     Ok(registry()
         .into_iter()
         .map(|spec| build_item(&spec, &state))
         .collect())
 }
 
-#[tauri::command]
-pub async fn tool_check_updates(tool_id: String) -> Result<UpdateInfo, String> {
-    let spec = find_spec(&tool_id).ok_or_else(|| format!("工具不存在: {tool_id}"))?;
-    let (version, changelog) = resolve_latest(&spec).await?;
+// 前端继续静默处理网络检查失败,但必须显示安装记录读写错误。
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "message", rename_all = "camelCase")]
+pub enum ToolCheckError {
+    Update(String),
+    State(String),
+}
 
-    let mut state = load_state();
+#[tauri::command]
+pub async fn tool_check_updates(tool_id: String) -> Result<UpdateInfo, ToolCheckError> {
+    let spec = find_spec(&tool_id)
+        .ok_or_else(|| ToolCheckError::Update(format!("工具不存在: {tool_id}")))?;
+    let (version, changelog) = resolve_latest(&spec)
+        .await
+        .map_err(ToolCheckError::Update)?;
+
+    let checked_id = tool_id.clone();
+    let state = update_state(move |state| {
+        if let Some(st) = state.tools.get_mut(&checked_id) {
+            st.last_checked = now_iso();
+            true
+        } else {
+            false
+        }
+    })
+    .await
+    .map_err(ToolCheckError::State)?;
     let installed_version = state
         .tools
         .get(&tool_id)
-        .map(|s| s.version.clone())
+        .map(|s| s.version.as_str())
         .unwrap_or_default();
-    let has_update = is_newer(&version, &installed_version);
-    if let Some(st) = state.tools.get_mut(&tool_id) {
-        st.last_checked = now_iso();
-        let _ = save_state(&state);
-    }
+    let has_update = is_newer(&version, installed_version);
 
     Ok(UpdateInfo {
         has_update,
@@ -449,7 +436,7 @@ pub async fn tool_update(app: AppHandle, tool_id: String) -> Result<ToolListItem
 
 #[tauri::command]
 pub async fn tool_launch(tool_id: String) -> Result<(), String> {
-    let state = load_state();
+    let state = load_state()?;
     let st = state
         .tools
         .get(&tool_id)
@@ -577,7 +564,7 @@ fn shell_execute_runas(exe_path: &str, params: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn tool_open_dir(tool_id: String) -> Result<(), String> {
     use std::process::Command;
-    let state = load_state();
+    let state = load_state()?;
     let st = state
         .tools
         .get(&tool_id)
@@ -728,6 +715,8 @@ fn focus_window_by_pid(pid: u32) -> bool {
 
 async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, String> {
     let spec = find_spec(tool_id).ok_or_else(|| format!("工具不存在: {tool_id}"))?;
+    // 先验证记录,损坏时拒绝重新下载,避免用空状态覆盖可恢复的安装信息。
+    load_state()?;
 
     // 1. 解析最新版本与实际下载地址
     // LatestJson 必须先拿到 asset URL;KeyValueTxt / RedirectTag 的下载地址由版本号拼装,
@@ -779,6 +768,12 @@ async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, St
         }
     }
 
+    // 下载期间记录可能被外部修改;覆盖已有工具文件前再检查一次。
+    if let Err(error) = load_state() {
+        let _ = fs::remove_file(&tmp);
+        return Err(error);
+    }
+
     // 3. 解压 exe + 附属文件(或整包),或直接放置裸 exe
     let install_dir = tool_install_dir(tool_id);
     let extracted = if spec.raw_exe {
@@ -800,19 +795,22 @@ async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, St
     };
     let _ = fs::remove_file(&tmp);
 
-    // 4. 写状态
+    // 4. 在锁内重新读取并合并,保留其它下载/更新检查已经写入的记录。
     let now = now_iso();
-    let mut state = load_state();
-    state.tools.insert(
-        tool_id.to_string(),
-        ToolState {
-            version,
-            exe_path: exe_path.to_string_lossy().to_string(),
-            installed_at: now.clone(),
-            last_checked: now,
-        },
-    );
-    save_state(&state)?;
+    let installed_id = tool_id.to_string();
+    let state = update_state(move |state| {
+        state.tools.insert(
+            installed_id,
+            ToolState {
+                version,
+                exe_path: exe_path.to_string_lossy().to_string(),
+                installed_at: now.clone(),
+                last_checked: now,
+            },
+        );
+        true
+    })
+    .await?;
 
     Ok(build_item(&spec, &state))
 }
@@ -1709,6 +1707,20 @@ fn entry_name_as_is(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_check_errors_distinguish_state_from_network() {
+        let state = serde_json::to_value(ToolCheckError::State("tools.json 损坏".into())).unwrap();
+        assert_eq!(
+            state,
+            serde_json::json!({"kind": "state", "message": "tools.json 损坏"})
+        );
+        let update = serde_json::to_value(ToolCheckError::Update("网络超时".into())).unwrap();
+        assert_eq!(
+            update,
+            serde_json::json!({"kind": "update", "message": "网络超时"})
+        );
+    }
 
     #[test]
     fn parses_update_txt_fields() {

@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { AppHeader } from "@/components/AppHeader";
 import { cn } from "@/lib/utils";
+import { toolStateErrorMessage } from "@/lib/toolErrors";
 import {
   tauri,
   type CustomTool,
@@ -256,9 +257,11 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
       const list = await tauri.toolList();
       setTools(list);
       setNotice(null);
-      // 后台逐个检查更新
+      // 后台并发检查更新,安装记录由后端事务锁保护
       list.forEach((tool) => void checkUpdates(tool.id));
     } catch (error) {
+      // 读取失败不是“未下载”,不保留可能已失效的操作按钮。
+      setTools([]);
       setNotice({ tone: "error", text: String(error) });
     } finally {
       setLoading(false);
@@ -281,8 +284,10 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
             : tool,
         ),
       );
-    } catch {
-      // 更新检查失败静默处理,不影响打开操作
+    } catch (error) {
+      // 网络/版本检查失败仍静默;配置损坏、锁定或写入失败必须告知用户。
+      const message = toolStateErrorMessage(error);
+      if (message) setNotice({ tone: "error", text: message });
     } finally {
       setCheckingIds((ids) => ids.filter((id) => id !== toolId));
     }
@@ -308,12 +313,13 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
           ? await tauri.toolDownload(toolId)
           : await tauri.toolUpdate(toolId);
       mergeItem(updated);
-      await checkUpdates(toolId);
       setNotice({
         tone: "success",
         text:
           kind === "download" ? "下载完成" : "已更新到最新版本",
       });
+      // 后续检查若出现配置错误,不能再被成功提示覆盖。
+      await checkUpdates(toolId);
     } catch (error) {
       setNotice({ tone: "error", text: String(error) });
     } finally {
