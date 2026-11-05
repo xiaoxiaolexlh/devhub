@@ -42,7 +42,7 @@ export function CommandPalette({
     const settingsItem = {
       id: "settings",
       title: "应用设置",
-      desc: "打开编辑器路径、主题等基础设置",
+      desc: "编辑器目录、打开方式、主题等应用设置",
       icon: Settings,
       action: () => {
         onOpenSettings();
@@ -50,7 +50,8 @@ export function CommandPalette({
       },
     };
 
-    const all = [...modeItems, settingsItem];
+    // 应用设置排在最前,便于搜索「设置」时直接命中。
+    const all = [settingsItem, ...modeItems];
     if (!q) return all;
 
     return all.filter(

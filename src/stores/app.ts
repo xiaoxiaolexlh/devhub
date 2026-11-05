@@ -12,7 +12,8 @@ export type AppMode =
   | "ai-agents"
   | "terminal-manager"
   | "tool-manager"
-  | "system-settings";
+  | "system-settings"
+  | "settings";
 export type SortKey = "name" | "version" | "publisher" | "size";
 export type FilterMode = "all" | "missing" | "outdated";
 
@@ -26,6 +27,8 @@ interface AppState {
   scans: EditorScan[];
   settings: Settings | null;
   appMode: AppMode;
+  /** 进入设置页时所在的工作台,用于设置页的「返回」按钮。 */
+  settingsReturnMode: AppMode;
   recentProjectRoots: string[];
 
   sourceEditorId: string;
@@ -72,11 +75,24 @@ function applyThemeToDom(t: Theme) {
   document.documentElement.classList.toggle("dark", isDark);
 }
 
+function isAppMode(mode: string | null): mode is AppMode {
+  return (
+    mode === "extensions" ||
+    mode === "project-configs" ||
+    mode === "hbuilderx-cli" ||
+    mode === "node-services" ||
+    mode === "directory-cleaner" ||
+    mode === "ai-configs" ||
+    mode === "ai-agents" ||
+    mode === "terminal-manager" ||
+    mode === "tool-manager" ||
+    mode === "system-settings"
+  );
+}
+
 function loadAppMode(): AppMode {
   const mode = localStorage.getItem(LAST_MODE_KEY);
-  return mode === "extensions" || mode === "project-configs" || mode === "hbuilderx-cli" || mode === "node-services" || mode === "directory-cleaner" || mode === "ai-configs" || mode === "ai-agents" || mode === "terminal-manager" || mode === "tool-manager" || mode === "system-settings"
-    ? mode
-    : "home";
+  return isAppMode(mode) ? mode : "home";
 }
 
 function loadRecentProjectRoots(): string[] {
@@ -101,6 +117,7 @@ export const useApp = create<AppState>((set, get) => ({
   scans: [],
   settings: null,
   appMode: "home",
+  settingsReturnMode: "home",
   recentProjectRoots: [],
 
   sourceEditorId: "vscode",
@@ -123,9 +140,11 @@ export const useApp = create<AppState>((set, get) => ({
         .filter((e) => e.id !== settings.source_editor)
         .map((e) => e.id),
     );
+    const appMode = loadAppMode();
     set({
       settings,
-      appMode: loadAppMode(),
+      appMode,
+      settingsReturnMode: appMode,
       recentProjectRoots: loadRecentProjectRoots(),
       sourceEditorId: settings.source_editor,
       targetEditorIds: ids,
@@ -153,10 +172,21 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setAppMode(mode) {
-    if (mode === "extensions" || mode === "project-configs" || mode === "hbuilderx-cli" || mode === "node-services" || mode === "directory-cleaner" || mode === "ai-configs" || mode === "ai-agents" || mode === "terminal-manager" || mode === "tool-manager" || mode === "system-settings") {
+    if (isAppMode(mode)) {
       localStorage.setItem(LAST_MODE_KEY, mode);
+      set({ appMode: mode, settingsReturnMode: mode });
+      return;
     }
-    set({ appMode: mode });
+    // 「设置」与「主页」是临时页面,不写入上次模式;进入设置时记住来源工作台。
+    set((s) => ({
+      appMode: mode,
+      settingsReturnMode:
+        mode === "settings" && s.appMode !== "settings"
+          ? isAppMode(s.appMode)
+            ? s.appMode
+            : "home"
+          : s.settingsReturnMode,
+    }));
   },
 
   addRecentProjectRoot(path) {

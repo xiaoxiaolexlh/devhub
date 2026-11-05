@@ -1,50 +1,150 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open as openDialog, confirm } from "@tauri-apps/plugin-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogBody,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/Dialog";
+  ArrowLeft,
+  Check,
+  CircleAlert,
+  FolderGit2,
+  FolderKanban,
+  FolderOpen,
+  Loader2,
+  MousePointerClick,
+  Plus,
+  Puzzle,
+  RefreshCw,
+  RotateCcw,
+  SlidersHorizontal,
+  Star,
+  TerminalSquare,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { useApp } from "@/stores/app";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { UpdateChecker } from "@/components/UpdateChecker";
+import { cn } from "@/lib/utils";
 import {
+  type ConflictStrategy,
   type Editor,
-  type HBuilderXProjectGroup,
   type HBuilderXProject,
+  type HBuilderXProjectGroup,
   type OpenMethod,
   type Settings,
   type Theme,
-  type ConflictStrategy,
 } from "@/lib/tauri";
-import { Trash2, Plus, FolderOpen, Check, X, Star } from "lucide-react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Checkbox } from "@/components/ui/Checkbox";
-import { UpdateChecker } from "@/components/UpdateChecker";
+import { useApp } from "@/stores/app";
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-}
+type SectionId =
+  | "editors"
+  | "open-methods"
+  | "project-configs"
+  | "project-roots"
+  | "hbuilderx"
+  | "defaults"
+  | "update";
 
-export function SettingsDialog({ open, onClose }: Props) {
-  const { settings, saveSettings } = useApp();
+const SECTIONS: {
+  id: SectionId;
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { id: "editors", title: "编辑器目录", icon: Puzzle },
+  { id: "open-methods", title: "打开方式", icon: MousePointerClick },
+  { id: "project-configs", title: "项目配置目录", icon: FolderGit2 },
+  { id: "project-roots", title: "固定项目库", icon: FolderKanban },
+  { id: "hbuilderx", title: "HBuilderX CLI", icon: TerminalSquare },
+  { id: "defaults", title: "默认行为", icon: SlidersHorizontal },
+  { id: "update", title: "检查更新", icon: RefreshCw },
+];
+
+export function SettingsPage() {
+  const { settings, saveSettings, setAppMode, settingsReturnMode } = useApp();
   const [draft, setDraft] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [activeSection, setActiveSection] = useState<SectionId>("editors");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
 
   useEffect(() => {
-    if (open && settings) {
-      // deep clone
-      setDraft(JSON.parse(JSON.stringify(settings)));
+    if (settings) {
+      setDraft(JSON.parse(JSON.stringify(settings)) as Settings);
     }
-  }, [open, settings]);
+  }, [settings]);
 
-  if (!draft) return null;
+  const dirty = useMemo(
+    () => Boolean(draft && settings && JSON.stringify(draft) !== JSON.stringify(settings)),
+    [draft, settings],
+  );
+
+  // 滚动时高亮左侧当前分组（以内容区顶部为基准取最后一个已到达顶部的分组）
+  const sectionsReady = draft !== null;
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || !sectionsReady) return;
+    const updateActive = () => {
+      const anchorTop = root.getBoundingClientRect().top;
+      let current = SECTIONS[0].id;
+      for (const section of SECTIONS) {
+        const el = sectionRefs.current[section.id];
+        if (!el) continue;
+        if (el.getBoundingClientRect().top - anchorTop <= 72) {
+          current = section.id;
+        }
+      }
+      if (root.scrollTop + root.clientHeight >= root.scrollHeight - 8) {
+        current = SECTIONS[SECTIONS.length - 1].id;
+      }
+      setActiveSection((prev) => (prev === current ? prev : current));
+    };
+    updateActive();
+    root.addEventListener("scroll", updateActive, { passive: true });
+    window.addEventListener("resize", updateActive);
+    return () => {
+      root.removeEventListener("scroll", updateActive);
+      window.removeEventListener("resize", updateActive);
+    };
+  }, [sectionsReady]);
+
+  const goBack = useCallback(async () => {
+    if (dirty) {
+      const ok = await confirm("当前有未保存的修改，确定要离开设置吗？", {
+        title: "放弃修改",
+        kind: "warning",
+        okLabel: "放弃并离开",
+        cancelLabel: "继续编辑",
+      });
+      if (!ok) return;
+    }
+    setAppMode(settingsReturnMode);
+  }, [dirty, setAppMode, settingsReturnMode]);
+
+  function jumpTo(id: SectionId) {
+    setActiveSection(id);
+    sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  if (!draft) {
+    return (
+      <div className="flex h-full w-full flex-col bg-bg text-fg">
+        <SettingsHeader
+          dirty={false}
+          invalid={false}
+          saving={false}
+          onBack={() => setAppMode(settingsReturnMode)}
+          onSave={() => {}}
+        />
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-fg-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          正在加载设置…
+        </div>
+      </div>
+    );
+  }
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setDraft((d) => (d ? { ...d, [key]: value } : d));
@@ -345,49 +445,111 @@ export function SettingsDialog({ open, onClose }: Props) {
     }
   }
 
+  const projectConfigDirIssues = getProjectConfigDirIssues(draft.project_config_dirs);
+  const invalid = projectConfigDirIssues.size > 0;
+
   async function save() {
     if (!draft) return;
     setSaving(true);
+    setNotice(null);
     try {
       const normalized = normalizeSettings(draft);
       await saveSettings(normalized);
-      onClose();
+      setDraft(JSON.parse(JSON.stringify(normalized)) as Settings);
+      setNotice({ tone: "success", text: "设置已保存" });
+    } catch (error) {
+      setNotice({ tone: "error", text: String(error) });
     } finally {
       setSaving(false);
     }
   }
 
-  const projectConfigDirIssues = getProjectConfigDirIssues(draft.project_config_dirs);
-
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent width="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle className="text-base font-semibold">设置</DialogTitle>
-          <DialogDescription className="text-xs text-fg-muted">
-            管理编辑器扩展目录与默认行为
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="flex flex-col gap-6">
-            <section>
-              <SectionHeader
-                title="编辑器目录"
-                desc="主源编辑器的扩展目录是同步的源头,其他作为目标"
-              />
+    <div className="flex h-full w-full flex-col bg-bg text-fg">
+      <SettingsHeader
+        dirty={dirty}
+        invalid={invalid}
+        saving={saving}
+        onBack={() => void goBack()}
+        onSave={() => void save()}
+      />
+
+      {notice && (
+        <div
+          className={cn(
+            "flex items-center gap-2 border-b px-5 py-2 text-sm",
+            notice.tone === "success"
+              ? "border-success/20 bg-success/5 text-success"
+              : "border-danger/20 bg-danger/5 text-danger",
+          )}
+        >
+          {notice.tone === "success" ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <CircleAlert className="h-3.5 w-3.5" />
+          )}
+          {notice.text}
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <nav className="w-52 shrink-0 overflow-y-auto border-r border-border bg-bg-subtle/60 p-2.5">
+          <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+            设置分组
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {SECTIONS.map((section) => {
+              const Icon = section.icon;
+              const active = activeSection === section.id;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => jumpTo(section.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors",
+                    active
+                      ? "bg-accent/10 font-medium text-accent"
+                      : "text-fg-muted hover:bg-bg-muted hover:text-fg",
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      active ? "text-accent" : "text-fg-subtle",
+                    )}
+                  />
+                  {section.title}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex max-w-3xl flex-col gap-5 px-8 py-6">
+            <SettingsCard
+              id="editors"
+              icon={Puzzle}
+              title="编辑器目录"
+              desc="主源编辑器的扩展目录是同步的源头，其他编辑器作为目标。点击左侧圆形按钮切换主源。"
+              refs={sectionRefs}
+            >
               <div className="flex flex-col gap-2">
                 {draft.editors.map((e, i) => (
                   <div
                     key={e.id}
-                    className="flex items-center gap-2 rounded-lg border border-border bg-bg-subtle p-2"
+                    className="flex items-center gap-2 rounded-xl border border-border bg-bg p-2"
                   >
                     <button
+                      type="button"
                       onClick={() => update("source_editor", e.id)}
-                      className={`flex h-7 w-7 items-center justify-center rounded-full border ${
+                      className={cn(
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors",
                         draft.source_editor === e.id
                           ? "border-accent bg-accent text-accent-fg"
-                          : "border-border-strong text-fg-subtle hover:border-accent hover:text-accent"
-                      }`}
+                          : "border-border-strong text-fg-subtle hover:border-accent hover:text-accent",
+                      )}
                       title="设为主源"
                     >
                       {draft.source_editor === e.id ? (
@@ -398,23 +560,19 @@ export function SettingsDialog({ open, onClose }: Props) {
                     </button>
                     <Input
                       value={e.name}
-                      onChange={(ev) =>
-                        updateEditor(i, { name: ev.target.value })
-                      }
+                      onChange={(ev) => updateEditor(i, { name: ev.target.value })}
                       className="w-32 shrink-0"
                       disabled={e.built_in}
                     />
                     <Input
                       value={e.path}
-                      onChange={(ev) =>
-                        updateEditor(i, { path: ev.target.value })
-                      }
+                      onChange={(ev) => updateEditor(i, { path: ev.target.value })}
                       className="flex-1 font-mono text-xs"
                     />
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => pickPath(i)}
+                      onClick={() => void pickPath(i)}
                       title="选择目录"
                     >
                       <FolderOpen className="h-4 w-4" />
@@ -434,29 +592,27 @@ export function SettingsDialog({ open, onClose }: Props) {
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                    {e.built_in && (
-                      <span className="rounded bg-bg-muted px-1.5 py-0.5 text-[10px] text-fg-muted">
-                        内置
-                      </span>
-                    )}
+                    {e.built_in && <Badge>内置</Badge>}
                   </div>
                 ))}
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={addCustomEditor}
+                  onClick={() => void addCustomEditor()}
                   className="self-start"
                 >
                   <Plus className="h-3.5 w-3.5" /> 添加自定义编辑器
                 </Button>
               </div>
-            </section>
+            </SettingsCard>
 
-            <section>
-              <SectionHeader
-                title="打开方式"
-                desc="用资源管理器、内置工作区或外部编辑器打开文件夹；星标为默认打开方式"
-              />
+            <SettingsCard
+              id="open-methods"
+              icon={MousePointerClick}
+              title="打开方式"
+              desc="用资源管理器、内置工作区或外部编辑器打开文件夹；星标为默认打开方式。"
+              refs={sectionRefs}
+            >
               <div className="flex flex-col gap-2">
                 {(draft.open_methods ?? []).map((method, i) => {
                   const isExternal = method.kind === "external_app";
@@ -464,20 +620,23 @@ export function SettingsDialog({ open, onClose }: Props) {
                   return (
                     <div
                       key={method.id}
-                      className="flex flex-col gap-2 rounded-lg border border-border bg-bg-subtle p-2"
+                      className="flex flex-col gap-2 rounded-xl border border-border bg-bg p-2.5"
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => update("default_open_method_id", method.id)}
-                          className={`flex h-7 w-7 items-center justify-center rounded-full border ${
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors",
                             isDefault
                               ? "border-accent bg-accent text-accent-fg"
-                              : "border-border-strong text-fg-subtle hover:border-accent hover:text-accent"
-                          }`}
+                              : "border-border-strong text-fg-subtle hover:border-accent hover:text-accent",
+                          )}
                           title="设为默认打开方式"
                         >
-                          <Star className={`h-3.5 w-3.5 ${isDefault ? "fill-current" : ""}`} />
+                          <Star
+                            className={cn("h-3.5 w-3.5", isDefault && "fill-current")}
+                          />
                         </button>
                         <label className="flex items-center gap-1.5 text-xs text-fg-muted">
                           <Checkbox
@@ -497,18 +656,14 @@ export function SettingsDialog({ open, onClose }: Props) {
                           disabled={method.built_in && !isExternal}
                           title={method.built_in ? "内置项" : undefined}
                         />
-                        <span className="rounded bg-bg-muted px-1.5 py-0.5 text-[10px] text-fg-muted">
+                        <Badge>
                           {method.kind === "explorer"
                             ? "资源管理器"
                             : method.kind === "workspace"
                               ? "内置工作区"
                               : "外部程序"}
-                        </span>
-                        {method.built_in && (
-                          <span className="rounded bg-bg-muted px-1.5 py-0.5 text-[10px] text-fg-muted">
-                            内置
-                          </span>
-                        )}
+                        </Badge>
+                        {method.built_in && <Badge>内置</Badge>}
                         <div className="ml-auto">
                           <Button
                             variant="ghost"
@@ -524,7 +679,9 @@ export function SettingsDialog({ open, onClose }: Props) {
                       {isExternal && (
                         <div className="flex flex-col gap-2 pl-9">
                           <div className="flex items-center gap-2">
-                            <span className="w-16 shrink-0 text-[11px] text-fg-muted">程序</span>
+                            <span className="w-16 shrink-0 text-[11px] text-fg-muted">
+                              程序
+                            </span>
                             <Input
                               value={method.command}
                               onChange={(ev) =>
@@ -543,7 +700,9 @@ export function SettingsDialog({ open, onClose }: Props) {
                             </Button>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="w-16 shrink-0 text-[11px] text-fg-muted">参数</span>
+                            <span className="w-16 shrink-0 text-[11px] text-fg-muted">
+                              参数
+                            </span>
                             <Input
                               value={method.args_template}
                               onChange={(ev) =>
@@ -572,26 +731,26 @@ export function SettingsDialog({ open, onClose }: Props) {
                   <Plus className="h-3.5 w-3.5" /> 添加打开方式
                 </Button>
               </div>
-            </section>
+            </SettingsCard>
 
-            <section>
-              <SectionHeader
-                title="项目配置目录"
-                desc="项目配置同步会按这里的目录名扫描和复制"
-              />
+            <SettingsCard
+              id="project-configs"
+              icon={FolderGit2}
+              title="项目配置目录"
+              desc="项目配置同步会按这里的目录名扫描和复制，目录名需以 . 开头。"
+              refs={sectionRefs}
+            >
               <div className="flex flex-col gap-2">
                 {draft.project_config_dirs.map((dir, i) => {
                   const issue = projectConfigDirIssues.get(i);
                   return (
                     <div
                       key={i}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-bg-subtle p-2"
+                      className="flex items-center gap-2 rounded-xl border border-border bg-bg p-2"
                     >
                       <Input
                         value={dir}
-                        onChange={(ev) =>
-                          updateProjectConfigDir(i, ev.target.value)
-                        }
+                        onChange={(ev) => updateProjectConfigDir(i, ev.target.value)}
                         placeholder=".windsurf"
                         className="font-mono text-xs"
                       />
@@ -620,18 +779,20 @@ export function SettingsDialog({ open, onClose }: Props) {
                   <Plus className="h-3.5 w-3.5" /> 添加配置目录
                 </Button>
               </div>
-            </section>
+            </SettingsCard>
 
-            <section>
-              <SectionHeader
-                title="固定项目库"
-                desc="项目配置同步页会优先展示这些常用项目"
-              />
+            <SettingsCard
+              id="project-roots"
+              icon={FolderKanban}
+              title="固定项目库"
+              desc="项目配置同步页会优先展示这些常用项目。"
+              refs={sectionRefs}
+            >
               <div className="flex flex-col gap-2">
                 {draft.project_roots.map((path, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-2 rounded-lg border border-border bg-bg-subtle p-2"
+                    className="flex items-center gap-2 rounded-xl border border-border bg-bg p-2"
                   >
                     <Input
                       value={path}
@@ -651,20 +812,22 @@ export function SettingsDialog({ open, onClose }: Props) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={pickProjectRoot}
+                  onClick={() => void pickProjectRoot()}
                   className="self-start"
                 >
                   <Plus className="h-3.5 w-3.5" /> 添加固定项目
                 </Button>
               </div>
-            </section>
+            </SettingsCard>
 
-            <section>
-              <SectionHeader
-                title="HBuilderX CLI"
-                desc="配置 CLI 文件夹和常用 uni-app 项目"
-              />
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-border bg-bg-subtle p-2">
+            <SettingsCard
+              id="hbuilderx"
+              icon={TerminalSquare}
+              title="HBuilderX CLI"
+              desc="配置 CLI 文件夹和常用 uni-app 项目。"
+              refs={sectionRefs}
+            >
+              <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-bg p-2">
                 <Input
                   value={draft.hbuilderx_cli_dir}
                   onChange={(ev) => updateHBuilderXCliDir(ev.target.value)}
@@ -674,7 +837,7 @@ export function SettingsDialog({ open, onClose }: Props) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={pickHBuilderXCliDir}
+                  onClick={() => void pickHBuilderXCliDir()}
                   title="选择 CLI 文件夹"
                 >
                   <FolderOpen className="h-4 w-4" />
@@ -684,7 +847,7 @@ export function SettingsDialog({ open, onClose }: Props) {
                 {draft.hbuilderx_projects.map((project, i) => (
                   <div
                     key={project.id}
-                    className="grid grid-cols-[140px_1fr_auto_auto] items-center gap-2 rounded-lg border border-border bg-bg-subtle p-2"
+                    className="grid grid-cols-[140px_1fr_auto_auto] items-center gap-2 rounded-xl border border-border bg-bg p-2"
                   >
                     <Input
                       value={project.name}
@@ -703,7 +866,7 @@ export function SettingsDialog({ open, onClose }: Props) {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => pickHBuilderXProject(i)}
+                      onClick={() => void pickHBuilderXProject(i)}
                       title="选择项目目录"
                     >
                       <FolderOpen className="h-4 w-4" />
@@ -721,28 +884,27 @@ export function SettingsDialog({ open, onClose }: Props) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={addHBuilderXProject}
+                  onClick={() => void addHBuilderXProject()}
                   className="self-start"
                 >
                   <Plus className="h-3.5 w-3.5" /> 添加 CLI 项目
                 </Button>
               </div>
-            </section>
+            </SettingsCard>
 
-            <section>
-              <SectionHeader
-                title="默认行为"
-                desc="复制冲突策略与备份保留时长"
-              />
+            <SettingsCard
+              id="defaults"
+              icon={SlidersHorizontal}
+              title="默认行为"
+              desc="复制冲突策略、回收站保留时长与界面主题。"
+              refs={sectionRefs}
+            >
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                 <Field label="冲突策略">
                   <Select
                     value={draft.conflict_strategy}
                     onChange={(e) =>
-                      update(
-                        "conflict_strategy",
-                        e.target.value as ConflictStrategy,
-                      )
+                      update("conflict_strategy", e.target.value as ConflictStrategy)
                     }
                   >
                     <option value="ask">每次询问</option>
@@ -773,44 +935,165 @@ export function SettingsDialog({ open, onClose }: Props) {
                   </Select>
                 </Field>
               </div>
-            </section>
+            </SettingsCard>
 
-            <section>
-              <SectionHeader
-                title="检查更新"
-                desc="检查并安装 DevHub 的最新版本"
-              />
+            <SettingsCard
+              id="update"
+              icon={RefreshCw}
+              title="检查更新"
+              desc="检查并安装 DevHub 的最新版本。"
+              refs={sectionRefs}
+            >
               <UpdateChecker />
-            </section>
+            </SettingsCard>
+
+            <div className="flex items-center justify-between gap-3 pb-2">
+              <p className="text-xs text-fg-muted">
+                {dirty ? "有未保存的修改" : "所有修改已保存"}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (settings) {
+                      setDraft(JSON.parse(JSON.stringify(settings)) as Settings);
+                      setNotice(null);
+                    }
+                  }}
+                  disabled={!dirty || saving}
+                  title="放弃所有未保存的修改"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  还原
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void save()}
+                  disabled={!dirty || saving || invalid}
+                >
+                  {saving ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                  保存设置
+                </Button>
+              </div>
+            </div>
           </div>
-        </DialogBody>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="ghost" disabled={saving}>
-              <X className="h-4 w-4" />
-              取消
-            </Button>
-          </DialogClose>
-          <Button
-            variant="primary"
-            onClick={save}
-            disabled={saving || projectConfigDirIssues.size > 0}
-          >
-            <Check className="h-4 w-4" />
-            保存
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function SectionHeader({ title, desc }: { title: string; desc?: string }) {
+function SettingsHeader({
+  dirty,
+  invalid,
+  saving,
+  onBack,
+  onSave,
+}: {
+  dirty: boolean;
+  invalid: boolean;
+  saving: boolean;
+  onBack: () => void;
+  onSave: () => void;
+}) {
   return (
-    <div className="mb-3">
-      <h3 className="text-sm font-semibold text-fg">{title}</h3>
-      {desc && <p className="text-xs text-fg-muted">{desc}</p>}
-    </div>
+    <header className="flex shrink-0 items-center gap-3 border-b border-border bg-bg/95 px-4 py-2.5 backdrop-blur-sm">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onBack}
+        className="text-fg-muted hover:text-fg"
+        title="返回上一工作台"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        返回
+      </Button>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <h1 className="truncate text-sm font-semibold text-fg">设置</h1>
+          {dirty && (
+            <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+              未保存
+            </span>
+          )}
+        </div>
+        <div className="truncate text-xs text-fg-muted">
+          管理编辑器扩展目录、打开方式与默认行为
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        {invalid && (
+          <span className="flex items-center gap-1 text-xs text-danger">
+            <CircleAlert className="h-3.5 w-3.5" />
+            请先修正项目配置目录
+          </span>
+        )}
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onSave}
+          disabled={!dirty || saving || invalid}
+        >
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="h-3.5 w-3.5" />
+          )}
+          保存
+        </Button>
+      </div>
+    </header>
+  );
+}
+
+function SettingsCard({
+  id,
+  icon: Icon,
+  title,
+  desc,
+  refs,
+  children,
+}: {
+  id: SectionId;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  desc?: string;
+  refs: React.MutableRefObject<Partial<Record<SectionId, HTMLElement | null>>>;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      data-section={id}
+      ref={(el) => {
+        refs.current[id] = el;
+      }}
+      className="scroll-mt-6 rounded-2xl border border-border bg-bg-subtle p-5 shadow-sm"
+    >
+      <div className="mb-4 flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-fg">{title}</h2>
+          {desc && <p className="mt-0.5 text-xs leading-5 text-fg-muted">{desc}</p>}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="shrink-0 rounded bg-bg-muted px-1.5 py-0.5 text-[10px] text-fg-muted">
+      {children}
+    </span>
   );
 }
 
@@ -845,7 +1128,9 @@ function normalizeSettings(settings: Settings): Settings {
   let default_open_method_id = settings.default_open_method_id?.trim() || "explorer";
   if (!open_methods.some((m) => m.id === default_open_method_id)) {
     default_open_method_id =
-      open_methods.find((m) => m.id === "explorer")?.id ?? open_methods[0]?.id ?? "explorer";
+      open_methods.find((m) => m.id === "explorer")?.id ??
+      open_methods[0]?.id ??
+      "explorer";
   }
 
   return {

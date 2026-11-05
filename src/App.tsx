@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { TooltipProvider } from "@/components/ui/Tooltip";
@@ -13,11 +13,6 @@ import { Loader2 } from "lucide-react";
 
 import { CommandPalette } from "@/components/CommandPalette";
 
-const SettingsDialog = lazy(() =>
-  import("@/components/SettingsDialog").then((module) => ({
-    default: module.SettingsDialog,
-  })),
-);
 const DirectoryCleanerPage = lazy(() =>
   import("@/components/DirectoryCleanerPage").then((module) => ({
     default: module.DirectoryCleanerPage,
@@ -78,11 +73,16 @@ const SystemSettingsPage = lazy(() =>
     default: module.SystemSettingsPage,
   })),
 );
+const SettingsPage = lazy(() =>
+  import("@/components/SettingsPage").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
 
 function App() {
-  const { ready, init, refreshRunning, appMode } = useApp();
-  const [openSettings, setOpenSettings] = useState(false);
+  const { ready, init, refreshRunning, appMode, setAppMode } = useApp();
   const [openPalette, setOpenPalette] = useState(false);
+  const openSettings = useCallback(() => setAppMode("settings"), [setAppMode]);
   const workspaceRoot = workspaceRootFromUrl();
   const workspaceFile = workspaceFileFromUrl();
   const workspaceSingleFile = workspaceSingleFileFromUrl();
@@ -211,39 +211,35 @@ function App() {
             singleFile={workspaceSingleFile}
           />
         ) : appMode === "extensions" ? (
-          <ExtensionSyncPage onOpenSettings={() => setOpenSettings(true)} />
+          <ExtensionSyncPage onOpenSettings={openSettings} />
         ) : appMode === "project-configs" ? (
-          <ProjectConfigSyncPage onOpenSettings={() => setOpenSettings(true)} />
+          <ProjectConfigSyncPage onOpenSettings={openSettings} />
         ) : appMode === "hbuilderx-cli" ? (
-          <HBuilderXCliPage onOpenSettings={() => setOpenSettings(true)} />
+          <HBuilderXCliPage onOpenSettings={openSettings} />
         ) : appMode === "node-services" ? (
-          <NodeServicesPage onOpenSettings={() => setOpenSettings(true)} />
+          <NodeServicesPage onOpenSettings={openSettings} />
         ) : appMode === "directory-cleaner" ? (
-          <DirectoryCleanerPage onOpenSettings={() => setOpenSettings(true)} />
+          <DirectoryCleanerPage onOpenSettings={openSettings} />
         ) : appMode === "ai-configs" ? (
-          <AiConfigPage onOpenSettings={() => setOpenSettings(true)} />
+          <AiConfigPage onOpenSettings={openSettings} />
         ) : appMode === "ai-agents" ? (
-          <AiAgentManagerPage onOpenSettings={() => setOpenSettings(true)} />
+          <AiAgentManagerPage onOpenSettings={openSettings} />
         ) : appMode === "terminal-manager" ? (
-          <TerminalManagerPage onOpenSettings={() => setOpenSettings(true)} />
+          <TerminalManagerPage onOpenSettings={openSettings} />
         ) : appMode === "tool-manager" ? (
-          <ToolManagerPage onOpenSettings={() => setOpenSettings(true)} />
+          <ToolManagerPage onOpenSettings={openSettings} />
         ) : appMode === "system-settings" ? (
-          <SystemSettingsPage onOpenSettings={() => setOpenSettings(true)} />
+          <SystemSettingsPage onOpenSettings={openSettings} />
+        ) : appMode === "settings" ? (
+          <SettingsPage />
         ) : (
-          <ModeSelectPage onOpenSettings={() => setOpenSettings(true)} />
-        )}
-        {!workspaceRoot && openSettings && (
-          <SettingsDialog
-            open={openSettings}
-            onClose={() => setOpenSettings(false)}
-          />
+          <ModeSelectPage onOpenSettings={openSettings} />
         )}
         {!workspaceRoot && (
           <CommandPalette
             open={openPalette}
             onOpenChange={setOpenPalette}
-            onOpenSettings={() => setOpenSettings(true)}
+            onOpenSettings={openSettings}
           />
         )}
       </Suspense>
