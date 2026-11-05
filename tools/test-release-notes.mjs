@@ -32,6 +32,13 @@ test("manual notes override the generated ones", () => {
   assert.equal(notesOnly(["--notes", "手写发版说明"]), "手写发版说明");
 });
 
+test("an existing version tag bounds the notes to that release", () => {
+  // 版本 tag 已存在时说明应稳定,不会因为发布后又提交了新改动而变长。
+  const first = notesOnly();
+  assert.equal(notesOnly(), first);
+  assert.match(first, /^## DevHub v/);
+});
+
 test("--notes and --notes-file are mutually exclusive", () => {
   assert.throws(() => notesOnly(["--notes", "a", "--notes-file", "b.md"]));
 });

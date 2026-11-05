@@ -102,8 +102,13 @@ function formatEntry({ subject, body }) {
   return [`### ${title}`, ...bodyLines].join("\n");
 }
 
-function collectCommits(from) {
-  const range = from ? `${from}..HEAD` : "HEAD";
+// 提交范围的上界:tag 已存在时固定到该 tag,重发同一版本不会把之后的提交算进来
+function notesTarget() {
+  return tagExists(tag) ? tag : "HEAD";
+}
+
+function collectCommits(from, to) {
+  const range = from ? `${from}..${to}` : to;
   try {
     return execSync(`git log ${range} --no-merges --pretty=format:%s%x1f%b%x1e`, {
       cwd: ROOT,
@@ -135,11 +140,12 @@ function buildNotes() {
     return readFileSync(notesFile, "utf8").trim();
   }
   const from = previousTag();
-  const commits = collectCommits(from);
+  const to = notesTarget();
+  const commits = collectCommits(from, to);
   if (commits.length === 0) return `DevHub ${tag}`;
-  const range = from ? `自 ${from} 之后的 ${commits.length} 个提交` : `共 ${commits.length} 个提交`;
+  const scope = from ? `自 ${from} 之后的 ${commits.length} 个提交` : `共 ${commits.length} 个提交`;
   const entries = commits.map(formatEntry).join("\n\n");
-  return [`## DevHub ${tag}`, "", range, "", entries].join("\n").trim();
+  return [`## DevHub ${tag}`, "", scope, "", entries].join("\n").trim();
 }
 
 const releaseNotes = buildNotes();
