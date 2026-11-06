@@ -1225,14 +1225,7 @@ pub async fn open_with_method(
     open_path_with_method(&app, &method, path)
 }
 
-pub fn open_default_path(app: &tauri::AppHandle, path: String) -> Result<(), String> {
-    let settings = SETTINGS.lock().unwrap().clone();
-    let method = resolve_primary_open_method(&settings)
-        .ok_or_else(|| "没有可用的打开方式，请检查设置中的启用状态和程序路径。".to_string())?;
-    open_path_with_method(app, method, path)
-}
-
-fn resolve_primary_open_method(settings: &Settings) -> Option<&OpenMethod> {
+pub(crate) fn resolve_primary_open_method(settings: &Settings) -> Option<&OpenMethod> {
     let is_ready = |method: &&OpenMethod| {
         method.enabled
             && (method.kind != OpenMethodKind::ExternalApp || !method.command.trim().is_empty())
@@ -1260,7 +1253,7 @@ fn open_path_with_method(
     }
 }
 
-fn open_with_external_app(method: &OpenMethod, path: String) -> Result<(), String> {
+pub(crate) fn open_with_external_app(method: &OpenMethod, path: String) -> Result<(), String> {
     use std::process::Command;
 
     let command = method.command.trim();

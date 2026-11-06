@@ -7,6 +7,7 @@ mod manifest;
 mod node_services;
 mod scanner;
 mod settings;
+mod startup;
 mod syncer;
 mod system_settings;
 mod terminal;
@@ -27,8 +28,8 @@ use commands::{
     export_hbuilderx_cli_config, filter_terminal_project_directories, focus_terminal_session,
     get_ai_config_tool_files, get_ai_config_tool_statuses, get_hbuilderx_web_runs, get_settings,
     import_ai_config_tools, import_hbuilderx_cli_config, launch_terminal_session, list_editors,
-    list_terminal_sessions, open_default_path, open_folder_window, open_in_explorer,
-    open_path_window, open_with_method, preview_hbuilderx_publish_app_resource,
+    list_terminal_sessions, open_folder_window, open_in_explorer, open_path_window, open_with_method,
+    preview_hbuilderx_publish_app_resource,
     preview_hbuilderx_publish_cloud_pack, preview_hbuilderx_publish_mp_alipay,
     preview_hbuilderx_run_web, purge_trash, read_workspace_dir, read_workspace_file,
     resolve_hbuilderx_cli, run_hbuilderx_publish_app_resource,
@@ -44,7 +45,6 @@ use system_settings::{
     system_list_known_folders, system_restore_known_folder, system_set_known_folder,
     system_turn_off_display,
 };
-use tauri::Manager;
 use tools::{
     custom_tool_open, custom_tool_open_dir, tool_check_updates, tool_download, tool_is_elevated,
     tool_launch, tool_list, tool_open_dir, tool_restart_elevated, tool_update,
@@ -69,6 +69,36 @@ pub(crate) fn window_bg_color(window: &tauri::WebviewWindow, theme: &str) -> tau
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Resolve Explorer requests before creating Tauri or a WebView. External
+    // openers only need the saved settings and can exit immediately after launch.
+    settings::migrate_old_data();
+    let s = settings::load();
+    let startup = startup::resolve(std::env::args_os().skip(1), &s);
+    let workspace_path = match startup {
+        Ok(startup::StartupAction::Main) => None,
+        Ok(startup::StartupAction::Workspace(path)) => Some(path),
+        Ok(startup::StartupAction::Explorer(path)) => match open_in_explorer(path) {
+            Ok(()) => return,
+            Err(error) => {
+                eprintln!("Failed to open startup path: {error}");
+                None
+            }
+        },
+        Ok(startup::StartupAction::ExternalApp { method, path }) => {
+            match commands::open_with_external_app(&method, path) {
+                Ok(()) => return,
+                Err(error) => {
+                    eprintln!("Failed to open startup path: {error}");
+                    None
+                }
+            }
+        }
+        Err(error) => {
+            eprintln!("Failed to resolve startup path: {error}");
+            None
+        }
+    };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -156,38 +186,30 @@ pub fn run() {
             ai_agent_task_stop,
             ai_agent_task_clear,
         ])
-        .setup(|app| {
-            // migrate legacy data dirs into the unified app data directory
-            settings::migrate_old_data();
-
+        .setup(move |app| {
             // best-effort cleanup of expired trash on startup
-            let s = settings::load();
             syncer::purge_old_trash(s.backup_days);
 
-            let mut args = std::env::args_os().skip(1);
-            let first = args.next();
-            let second = args.next();
-            let has_open_argument = first.is_some();
-            let opened = match (first, second) {
-                (Some(flag), Some(path)) if flag == "--open-with-default" => {
-                    open_default_path(app.handle(), path.to_string_lossy().to_string())
+            if let Some(path) = workspace_path {
+                match open_path_window(app.handle(), path) {
+                    Ok(()) => return Ok(()),
+                    Err(error) => eprintln!("Failed to open startup workspace: {error}"),
                 }
-                (Some(path), _) => {
-                    open_path_window(app.handle(), path.to_string_lossy().to_string())
-                }
-                _ => Ok(()),
-            };
-            if opened.is_ok() && has_open_argument {
-                if let Some(main) = app.get_webview_window("main") {
-                    let _ = main.close();
-                }
-            } else if let Some(main) = app.get_webview_window("main") {
-                // The window is created hidden (visible: false). Paint it with the
-                // saved theme before showing, so the WebView2 cold start never
-                // flashes the default white background.
-                let _ = main.set_background_color(Some(window_bg_color(&main, &s.theme)));
-                let _ = main.show();
             }
+
+            // Main is opt-in (create: false): only normal launches or failed open
+            // requests need it. Successful workspace requests never create it.
+            let main_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .ok_or("main window configuration is missing")?;
+            let main = tauri::WebviewWindowBuilder::from_config(app, main_config)?.build()?;
+            // Paint the saved theme before showing the hidden window.
+            let _ = main.set_background_color(Some(window_bg_color(&main, &s.theme)));
+            let _ = main.show();
 
             Ok(())
         })
