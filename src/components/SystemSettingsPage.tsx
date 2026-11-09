@@ -14,6 +14,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/Button";
 import { AppHeader } from "@/components/AppHeader";
 import { ExplorerMenuSettings } from "@/components/ExplorerMenuSettings";
+import { EnvironmentVariablesSettings } from "@/components/EnvironmentVariablesSettings";
 import { Checkbox } from "@/components/ui/Checkbox";
 import {
   Dialog,
@@ -134,7 +135,7 @@ export function SystemSettingsPage({ onOpenSettings }: Props) {
     <div className="flex h-full w-full flex-col bg-bg text-fg">
       <AppHeader
         title="系统设置"
-        subtitle="集中管理电脑常用设置（右键菜单、一键关闭显示器、系统文件夹）"
+        subtitle="集中管理环境变量、右键菜单、电源显示和系统文件夹"
         onOpenSettings={onOpenSettings}
       />
 
@@ -153,6 +154,7 @@ export function SystemSettingsPage({ onOpenSettings }: Props) {
 
       <main className="flex-1 overflow-auto p-8">
         <div className="mx-auto flex max-w-3xl flex-col gap-5">
+          <EnvironmentVariablesSettings />
           <div className="flex items-center gap-2 text-sm font-medium text-fg-muted">
             <FolderOpen className="h-4 w-4" />
             资源管理器

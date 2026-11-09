@@ -91,7 +91,7 @@ export const APP_MODES: ModeMeta[] = [
   {
     mode: "system-settings",
     title: "系统设置",
-    desc: "系统已知文件夹与电源显示",
+    desc: "Windows 环境变量、系统文件夹与电源显示",
     icon: MonitorCog,
   },
 ];

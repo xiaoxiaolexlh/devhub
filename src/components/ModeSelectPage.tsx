@@ -126,9 +126,9 @@ export function ModeSelectPage({ onOpenSettings }: Props) {
             <ModeCard
               mode="system-settings"
               title="系统设置"
-              desc="集中管理电脑常用设置与快捷电源操作:一键关闭显示器,查看并自定义桌面、文档、下载等 Windows 已知文件夹的位置。"
+              desc="管理 Windows 用户和系统环境变量、系统文件夹位置，以及右键菜单和快捷电源操作。"
               icon={<MonitorCog className="h-8 w-8" />}
-              highlights={["电源与显示", "关闭显示器", "系统文件夹"]}
+              highlights={["环境变量", "电源与显示", "系统文件夹"]}
               onSelect={setAppMode}
             />
           </div>

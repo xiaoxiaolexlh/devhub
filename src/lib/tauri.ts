@@ -663,6 +663,23 @@ export interface ToolDownloadProgress {
   percent: number;
 }
 
+export type EnvironmentScope = "user" | "system";
+
+export interface EnvironmentVariable {
+  name: string;
+  value: string;
+  value_type: number;
+}
+
+export interface EnvironmentSnapshot {
+  variables: EnvironmentVariable[];
+  writable: boolean;
+}
+
+export interface EnvironmentChangeResult {
+  notification_sent: boolean;
+}
+
 export interface KnownFolder {
   id: string;
   label: string;
@@ -926,6 +943,15 @@ export const tauri = {
   customToolOpenDir: (exePath: string) =>
     invoke<void>("custom_tool_open_dir", { exePath }),
   systemTurnOffDisplay: () => invoke<void>("system_turn_off_display"),
+  environmentList: (scope: EnvironmentScope) =>
+    invoke<EnvironmentSnapshot>("environment_list", { scope }),
+  environmentSave: (
+    scope: EnvironmentScope,
+    variable: EnvironmentVariable,
+    expected: EnvironmentVariable | null,
+  ) => invoke<EnvironmentChangeResult>("environment_save", { scope, variable, expected }),
+  environmentDelete: (scope: EnvironmentScope, expected: EnvironmentVariable) =>
+    invoke<EnvironmentChangeResult>("environment_delete", { scope, expected }),
   explorerMenuStatus: () => invoke<ExplorerMenuStatus>("explorer_menu_status"),
   explorerMenuSetEnabled: (enabled: boolean) =>
     invoke<ExplorerMenuStatus>("explorer_menu_set_enabled", { enabled }),

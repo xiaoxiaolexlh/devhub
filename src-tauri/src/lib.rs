@@ -2,6 +2,7 @@ mod ai_agents;
 mod cleaner;
 mod commands;
 mod editors;
+mod environment;
 mod explorer_menu;
 mod manifest;
 mod node_services;
@@ -177,6 +178,9 @@ pub fn run() {
             system_list_known_folders,
             system_set_known_folder,
             system_restore_known_folder,
+            environment::environment_list,
+            environment::environment_save,
+            environment::environment_delete,
             ai_agent_check_node,
             ai_agent_list,
             ai_agent_latest_versions,
