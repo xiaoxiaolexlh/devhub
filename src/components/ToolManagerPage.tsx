@@ -21,7 +21,8 @@ import {
 import { Button } from "@/components/ui/Button";
 import { AppHeader } from "@/components/AppHeader";
 import { cn } from "@/lib/utils";
-import { toolStateErrorMessage } from "@/lib/toolErrors";
+import { toolInstallErrorMessage, toolStateErrorMessage } from "@/lib/toolErrors";
+import { updateToolSafely } from "@/lib/toolUpdate";
 import {
   tauri,
   type CustomTool,
@@ -258,7 +259,9 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
       setTools(list);
       setNotice(null);
       // 后台并发检查更新,安装记录由后端事务锁保护
-      list.forEach((tool) => void checkUpdates(tool.id));
+      list.forEach((tool) => {
+        if (!tool.manualDownload) void checkUpdates(tool.id);
+      });
     } catch (error) {
       // 读取失败不是“未下载”,不保留可能已失效的操作按钮。
       setTools([]);
@@ -303,15 +306,23 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
     if (downloadingRef.current.has(toolId)) return;
     downloadingRef.current.add(toolId);
     setBusyIds((ids) => [...ids, toolId]);
-    setProgressById((current) => ({
-      ...current,
-      [toolId]: { toolId, downloaded: 0, total: 0, percent: 0 },
-    }));
     try {
+      const toolName = tools.find((tool) => tool.id === toolId)?.name ?? "工具";
       const updated =
         kind === "download"
           ? await tauri.toolDownload(toolId)
-          : await tauri.toolUpdate(toolId);
+          : await updateToolSafely(toolId, tauri, () =>
+              confirm(
+                `「${toolName}」正在运行。请先保存未保存的内容，并结束正在执行的任务。\n\n确认后将请求程序正常关闭，退出后再更新。如果程序未退出，更新将停止。`,
+                {
+                  title: "关闭工具并更新",
+                  kind: "warning",
+                  okLabel: "关闭并更新",
+                  cancelLabel: "暂不更新",
+                },
+              ),
+            );
+      if (!updated) return;
       mergeItem(updated);
       setNotice({
         tone: "success",
@@ -321,7 +332,7 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
       // 后续检查若出现配置错误,不能再被成功提示覆盖。
       await checkUpdates(toolId);
     } catch (error) {
-      setNotice({ tone: "error", text: String(error) });
+      setNotice({ tone: "error", text: toolInstallErrorMessage(error) });
     } finally {
       downloadingRef.current.delete(toolId);
       setBusyIds((ids) => ids.filter((id) => id !== toolId));
@@ -350,6 +361,14 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
     }
   }
 
+  async function openHomepage(tool: ToolListItem) {
+    try {
+      await openUrl(tool.homepage);
+    } catch (error) {
+      setNotice({ tone: "error", text: `无法打开「${tool.name}」官网: ${String(error)}` });
+    }
+  }
+
   async function restartElevated() {
     setRestarting(true);
     try {
@@ -370,7 +389,7 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
     <div className="flex h-full w-full flex-col bg-bg text-fg">
       <AppHeader
         title="工具管理"
-        subtitle="下载、更新和打开常用外部便携工具"
+        subtitle="下载、更新和打开常用工具,或前往官网手动下载"
         badge={
           isElevated ? (
             <span className="inline-flex items-center gap-1 rounded bg-success/10 px-2 py-0.5 text-xs text-success">
@@ -480,7 +499,7 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
                     onUpdate={() => void install(tool.id, "update")}
                     onLaunch={() => void launch(tool.id)}
                     onOpenDir={() => void openDir(tool.id)}
-                    onHomepage={() => void openUrl(tool.homepage)}
+                    onHomepage={() => void openHomepage(tool)}
                   />
                 ))}
                 {visibleTools.length === 0 && (
@@ -521,9 +540,10 @@ function ToolCard({
   onHomepage,
 }: ToolCardProps) {
   const [changelogOpen, setChangelogOpen] = useState(false);
-  const installed = tool.installed;
+  const manualDownload = tool.manualDownload;
+  const installed = !manualDownload && tool.installed;
   const showUpdate = installed && tool.hasUpdate;
-  const checkingVersion = checking && !tool.latestVersion;
+  const checkingVersion = !manualDownload && checking && !tool.latestVersion;
   const changelogId = `changelog-${tool.id}`;
 
   return (
@@ -535,7 +555,9 @@ function ToolCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-fg">{tool.name}</h2>
-            {showUpdate ? (
+            {manualDownload ? (
+              <StatusBadge tone="muted" text="手动下载" />
+            ) : showUpdate ? (
               <StatusBadge tone="warning" text={`有更新 ${tool.latestVersion}`} />
             ) : installed ? (
               <StatusBadge tone="success" text={`已安装 ${tool.version}`} />
@@ -551,16 +573,20 @@ function ToolCard({
           </div>
           <p className="mt-1 text-xs text-fg-muted">
             {tool.description ||
-              "便携版,下载后存放在本应用数据目录,双击卡片即可打开。"}
+              (manualDownload
+                ? "请前往官网自行下载。"
+                : "便携版,下载后存放在本应用数据目录,双击卡片即可打开。")}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={onHomepage} title="访问官网">
-          <ExternalLink className="h-3.5 w-3.5" />
-          主页
-        </Button>
+        {!manualDownload && (
+          <Button variant="ghost" size="sm" onClick={onHomepage} title="访问官网">
+            <ExternalLink className="h-3.5 w-3.5" />
+            主页
+          </Button>
+        )}
       </div>
 
-      {busy && progress ? (
+      {!manualDownload && busy && progress ? (
         <div className="mt-5">
           <div className="mb-1 flex items-center justify-between text-xs text-fg-muted">
             <span>下载中...</span>
@@ -573,9 +599,24 @@ function ToolCard({
             />
           </div>
         </div>
+      ) : !manualDownload && busy ? (
+        <div className="mt-5 flex items-center gap-2 text-xs text-fg-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          正在准备，请稍候...
+        </div>
       ) : (
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          {!installed ? (
+          {manualDownload ? (
+            <>
+              <Button variant="primary" size="sm" onClick={onHomepage} title={tool.homepage}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                前往官网下载
+              </Button>
+              <span className="text-xs text-fg-muted">
+                下载后可在「自定义工具」中添加 .exe 文件
+              </span>
+            </>
+          ) : !installed ? (
             <Button variant="primary" size="sm" onClick={onDownload} disabled={busy}>
               <Download className="h-3.5 w-3.5" />
               下载

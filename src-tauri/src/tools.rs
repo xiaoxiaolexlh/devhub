@@ -9,12 +9,16 @@ use crate::settings::APP_DATA_DIR;
 
 mod state;
 use state::{ToolState, ToolsState};
+mod runtime;
+use runtime::ToolProcessInfo;
 
 // ===== 内置工具注册表 =====
 
 /// 如何解析远端最新版本。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VersionSource {
+    /// 由用户访问官网手动下载,不提供自动版本检查或托管安装。
+    Manual,
     /// `update_url` 为 geek 管道格式: build|version|changelog...
     UpdateTxt,
     /// 对 `download_url` 发请求,从 302 Location / 最终 URL 文件名解析版本。
@@ -276,11 +280,35 @@ fn registry() -> Vec<ToolSpec> {
             raw_exe: true,
             homepage: "https://github.com/Ray-lea/Argus".into(),
         },
+        ToolSpec {
+            id: "tbtool".into(),
+            name: "图吧工具箱".into(),
+            group: "system".into(),
+            description: "面向 DIY 装机与硬件检测的工具合集,请前往官网自行下载。".into(),
+            download_url: String::new(),
+            update_url: String::new(),
+            fallback_page_url: String::new(),
+            version_source: VersionSource::Manual,
+            exe_entry: String::new(),
+            extra_entries: vec![],
+            extract_all: false,
+            raw_exe: false,
+            homepage: "https://www.tbtool.cn".into(),
+        },
     ]
 }
 
 fn find_spec(tool_id: &str) -> Option<ToolSpec> {
     registry().into_iter().find(|s| s.id == tool_id)
+}
+
+/// 手动下载工具没有托管安装记录,所有本地安装操作必须在访问状态文件前拒绝。
+fn find_managed_spec(tool_id: &str) -> Result<ToolSpec, String> {
+    let spec = find_spec(tool_id).ok_or_else(|| format!("工具不存在: {tool_id}"))?;
+    if spec.version_source == VersionSource::Manual {
+        return Err(format!("「{}」请前往官网手动下载: {}", spec.name, spec.homepage));
+    }
+    Ok(spec)
 }
 
 // ===== 返回给前端的类型 =====
@@ -294,6 +322,7 @@ pub struct ToolListItem {
     pub group_name: String,
     pub description: String,
     pub homepage: String,
+    pub manual_download: bool,
     pub installed: bool,
     pub version: String,
     pub exe_path: String,
@@ -353,7 +382,12 @@ async fn update_state(
 }
 
 fn build_item(spec: &ToolSpec, state: &ToolsState) -> ToolListItem {
-    let st = state.tools.get(&spec.id);
+    let manual_download = spec.version_source == VersionSource::Manual;
+    let st = if manual_download {
+        None
+    } else {
+        state.tools.get(&spec.id)
+    };
     ToolListItem {
         id: spec.id.clone(),
         name: spec.name.clone(),
@@ -361,6 +395,7 @@ fn build_item(spec: &ToolSpec, state: &ToolsState) -> ToolListItem {
         group_name: group_display_name(&spec.group),
         description: spec.description.clone(),
         homepage: spec.homepage.clone(),
+        manual_download,
         installed: st.is_some(),
         version: st.map(|s| s.version.clone()).unwrap_or_default(),
         exe_path: st.map(|s| s.exe_path.clone()).unwrap_or_default(),
@@ -393,8 +428,7 @@ pub enum ToolCheckError {
 
 #[tauri::command]
 pub async fn tool_check_updates(tool_id: String) -> Result<UpdateInfo, ToolCheckError> {
-    let spec = find_spec(&tool_id)
-        .ok_or_else(|| ToolCheckError::Update(format!("工具不存在: {tool_id}")))?;
+    let spec = find_managed_spec(&tool_id).map_err(ToolCheckError::Update)?;
     let (version, changelog) = resolve_latest(&spec)
         .await
         .map_err(ToolCheckError::Update)?;
@@ -425,17 +459,63 @@ pub async fn tool_check_updates(tool_id: String) -> Result<UpdateInfo, ToolCheck
 }
 
 #[tauri::command]
-pub async fn tool_download(app: AppHandle, tool_id: String) -> Result<ToolListItem, String> {
-    install_tool(&app, &tool_id).await
+pub async fn tool_download(app: AppHandle, tool_id: String) -> Result<ToolListItem, ToolInstallError> {
+    install_tool(&app, &tool_id, false).await
 }
 
 #[tauri::command]
-pub async fn tool_update(app: AppHandle, tool_id: String) -> Result<ToolListItem, String> {
-    install_tool(&app, &tool_id).await
+pub async fn tool_update(
+    app: AppHandle,
+    tool_id: String,
+    close_running: Option<bool>,
+) -> Result<ToolListItem, ToolInstallError> {
+    install_tool(&app, &tool_id, close_running.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn tool_running_processes(tool_id: String) -> Result<Vec<ToolProcessInfo>, String> {
+    find_managed_spec(&tool_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        load_state()?;
+        Ok(runtime::running_processes(&tool_install_dir(&tool_id)))
+    })
+    .await
+    .map_err(|error| format!("工具运行状态检查失败: {error}"))?
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ToolInstallError {
+    Running {
+        message: String,
+        processes: Vec<ToolProcessInfo>,
+    },
+    Failure {
+        message: String,
+    },
+}
+
+impl From<String> for ToolInstallError {
+    fn from(message: String) -> Self {
+        Self::Failure { message }
+    }
+}
+
+fn require_tool_stopped(install_dir: &Path) -> Result<(), ToolInstallError> {
+    let processes = runtime::running_processes(install_dir);
+    if processes.is_empty() {
+        Ok(())
+    } else {
+        Err(ToolInstallError::Running {
+            message: "工具正在运行，已停止更新。请确认关闭或手动退出后重试。".into(),
+            processes,
+        })
+    }
 }
 
 #[tauri::command]
 pub async fn tool_launch(tool_id: String) -> Result<(), String> {
+    find_managed_spec(&tool_id)?;
     let state = load_state()?;
     let st = state
         .tools
@@ -564,6 +644,7 @@ fn shell_execute_runas(exe_path: &str, params: &str) -> Result<(), String> {
 #[tauri::command]
 pub async fn tool_open_dir(tool_id: String) -> Result<(), String> {
     use std::process::Command;
+    find_managed_spec(&tool_id)?;
     let state = load_state()?;
     let st = state
         .tools
@@ -713,10 +794,24 @@ fn focus_window_by_pid(pid: u32) -> bool {
 
 // ===== 内部实现 =====
 
-async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, String> {
-    let spec = find_spec(tool_id).ok_or_else(|| format!("工具不存在: {tool_id}"))?;
+async fn install_tool(
+    app: &AppHandle,
+    tool_id: &str,
+    close_running: bool,
+) -> Result<ToolListItem, ToolInstallError> {
+    let spec = find_managed_spec(tool_id)?;
     // 先验证记录,损坏时拒绝重新下载,避免用空状态覆盖可恢复的安装信息。
-    load_state()?;
+    let install_dir = tool_install_dir(tool_id);
+    let checked_dir = install_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        load_state()?;
+        if close_running {
+            runtime::close_running_tool(&checked_dir)?;
+        }
+        require_tool_stopped(&checked_dir)
+    })
+    .await
+    .map_err(|error| format!("工具更新准备失败: {error}"))??;
 
     // 1. 解析最新版本与实际下载地址
     // LatestJson 必须先拿到 asset URL;KeyValueTxt / RedirectTag 的下载地址由版本号拼装,
@@ -751,7 +846,7 @@ async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, St
         Ok(url) => url,
         Err(e) => {
             let _ = fs::remove_file(&tmp);
-            return Err(e);
+            return Err(e.into());
         }
     };
 
@@ -768,24 +863,27 @@ async fn install_tool(app: &AppHandle, tool_id: &str) -> Result<ToolListItem, St
         }
     }
 
-    // 下载期间记录可能被外部修改;覆盖已有工具文件前再检查一次。
-    if let Err(error) = load_state() {
-        let _ = fs::remove_file(&tmp);
-        return Err(error);
-    }
-
-    // 3. 解压 exe + 附属文件(或整包),或直接放置裸 exe
-    let install_dir = tool_install_dir(tool_id);
-    let extracted = if spec.raw_exe {
-        install_raw_exe(&tmp, &spec.exe_entry, &install_dir)
-    } else if spec.extract_all {
-        extract_all_entries(&tmp, &spec.exe_entry, &install_dir)
-    } else {
-        let mut entries = Vec::with_capacity(1 + spec.extra_entries.len());
-        entries.push(spec.exe_entry.clone());
-        entries.extend(spec.extra_entries.iter().cloned());
-        extract_entries(&tmp, &entries, &spec.exe_entry, &install_dir)
-    };
+    // 下载期间可能重新启动工具或修改记录，覆盖文件前必须再次检查。
+    // 检查与解压放在同一工作线程上，避免阻塞界面。
+    let extracted_spec = spec.clone();
+    let package_path = tmp.clone();
+    let extracted = tauri::async_runtime::spawn_blocking(move || {
+        load_state()?;
+        require_tool_stopped(&install_dir)?;
+        let path = if extracted_spec.raw_exe {
+            install_raw_exe(&package_path, &extracted_spec.exe_entry, &install_dir)
+        } else if extracted_spec.extract_all {
+            extract_all_entries(&package_path, &extracted_spec.exe_entry, &install_dir)
+        } else {
+            let mut entries = vec![extracted_spec.exe_entry.clone()];
+            entries.extend(extracted_spec.extra_entries.iter().cloned());
+            extract_entries(&package_path, &entries, &extracted_spec.exe_entry, &install_dir)
+        }?;
+        Ok::<_, ToolInstallError>(path)
+    })
+    .await
+    .map_err(|error| ToolInstallError::from(format!("工具安装任务失败: {error}")))
+    .and_then(|result| result);
     let exe_path = match extracted {
         Ok(path) => path,
         Err(e) => {
@@ -823,6 +921,7 @@ struct LatestJsonRelease {
 
 async fn resolve_latest(spec: &ToolSpec) -> Result<(String, Vec<String>), String> {
     match spec.version_source {
+        VersionSource::Manual => Err("手动下载工具不支持自动检查更新,请前往官网查看".into()),
         VersionSource::UpdateTxt => {
             let text = fetch_text(&spec.update_url).await?;
             Ok(parse_update_txt(&text))
@@ -1707,6 +1806,70 @@ fn entry_name_as_is(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tbtool_is_a_manual_download_in_the_system_group() {
+        let spec = find_spec("tbtool").unwrap();
+        assert_eq!(spec.name, "图吧工具箱");
+        assert_eq!(spec.group, "system");
+        assert_eq!(spec.version_source, VersionSource::Manual);
+        assert_eq!(spec.homepage, "https://www.tbtool.cn");
+        assert!(spec.download_url.is_empty());
+        assert!(spec.update_url.is_empty());
+        assert!(spec.exe_entry.is_empty());
+        let item = serde_json::to_value(build_item(&spec, &ToolsState::default())).unwrap();
+        assert_eq!(item["manualDownload"], true);
+        assert_eq!(item["groupName"], "系统工具");
+        assert_eq!(item["homepage"], "https://www.tbtool.cn");
+        assert_eq!(item["installed"], false);
+    }
+
+    #[test]
+    fn manual_tools_never_display_stale_managed_installation_state() {
+        let spec = find_spec("tbtool").unwrap();
+        let mut state = ToolsState::default();
+        state.tools.insert(spec.id.clone(), ToolState {
+            version: "old version".into(),
+            exe_path: "old.exe".into(),
+            installed_at: "old install time".into(),
+            last_checked: "old check time".into(),
+        });
+        let item = build_item(&spec, &state);
+        assert!(item.manual_download);
+        assert!(!item.installed);
+        assert!(!item.has_update);
+        assert!(item.version.is_empty());
+        assert!(item.exe_path.is_empty());
+        assert!(item.installed_at.is_empty());
+        assert!(item.last_checked.is_empty());
+        assert!(item.latest_version.is_empty());
+        assert!(item.changelog.is_empty());
+        assert_eq!(state.tools["tbtool"].version, "old version");
+    }
+
+    #[test]
+    fn managed_tool_lookup_rejects_manual_tools_and_keeps_existing_tools() {
+        let error = find_managed_spec("tbtool").unwrap_err();
+        assert!(error.contains("手动下载"));
+        assert!(error.contains("https://www.tbtool.cn"));
+        assert!(find_managed_spec("missing").unwrap_err().contains("工具不存在"));
+        for spec in registry().into_iter().filter(|s| s.id != "tbtool") {
+            assert!(find_managed_spec(&spec.id).is_ok());
+            assert!(!build_item(&spec, &ToolsState::default()).manual_download);
+        }
+    }
+
+    #[test]
+    fn manual_tool_commands_stop_before_network_or_managed_state_access() {
+        tauri::async_runtime::block_on(async {
+            let spec = find_spec("tbtool").unwrap();
+            assert!(resolve_latest(&spec).await.unwrap_err().contains("手动下载"));
+            let error = tool_check_updates("tbtool".into()).await.unwrap_err();
+            assert!(matches!(error, ToolCheckError::Update(message) if message.contains("手动下载")));
+            assert!(tool_launch("tbtool".into()).await.unwrap_err().contains("手动下载"));
+            assert!(tool_open_dir("tbtool".into()).await.unwrap_err().contains("手动下载"));
+        });
+    }
 
     #[test]
     fn update_check_errors_distinguish_state_from_network() {

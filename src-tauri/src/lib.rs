@@ -48,7 +48,7 @@ use system_settings::{
 };
 use tools::{
     custom_tool_open, custom_tool_open_dir, tool_check_updates, tool_download, tool_is_elevated,
-    tool_launch, tool_list, tool_open_dir, tool_restart_elevated, tool_update,
+    tool_launch, tool_list, tool_open_dir, tool_restart_elevated, tool_running_processes, tool_update,
 };
 
 /// Background colour matching the frontend palette (`--bg` in src/index.css).
@@ -166,6 +166,7 @@ pub fn run() {
             tool_download,
             tool_check_updates,
             tool_update,
+            tool_running_processes,
             tool_launch,
             tool_open_dir,
             tool_is_elevated,

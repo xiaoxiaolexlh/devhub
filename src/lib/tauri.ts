@@ -633,6 +633,12 @@ export interface CleanerCleanResult {
   message: string;
 }
 
+export interface ToolProcessInfo {
+  pid: number;
+  name: string;
+  exePath: string;
+}
+
 export interface ToolListItem {
   id: string;
   name: string;
@@ -640,6 +646,7 @@ export interface ToolListItem {
   groupName: string;
   description: string;
   homepage: string;
+  manualDownload: boolean;
   installed: boolean;
   version: string;
   exePath: string;
@@ -929,8 +936,10 @@ export const tauri = {
     invoke<ToolListItem>("tool_download", { toolId }),
   toolCheckUpdates: (toolId: string) =>
     invoke<ToolUpdateInfo>("tool_check_updates", { toolId }),
-  toolUpdate: (toolId: string) =>
-    invoke<ToolListItem>("tool_update", { toolId }),
+  toolRunningProcesses: (toolId: string) =>
+    invoke<ToolProcessInfo[]>("tool_running_processes", { toolId }),
+  toolUpdate: (toolId: string, closeRunning = false) =>
+    invoke<ToolListItem>("tool_update", { toolId, closeRunning }),
   toolLaunch: (toolId: string) => invoke<void>("tool_launch", { toolId }),
   toolOpenDir: (toolId: string) => invoke<void>("tool_open_dir", { toolId }),
   toolIsElevated: () => invoke<boolean>("tool_is_elevated"),

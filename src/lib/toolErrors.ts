@@ -12,3 +12,13 @@ export function toolStateErrorMessage(error: unknown): string | null {
   }
   return null;
 }
+
+export function toolInstallErrorMessage(error: unknown): string {
+  if (
+    typeof error === "object" && error !== null &&
+    "message" in error && typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+}
