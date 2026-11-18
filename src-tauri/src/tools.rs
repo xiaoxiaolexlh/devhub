@@ -11,6 +11,7 @@ mod state;
 use state::{ToolState, ToolsState};
 mod runtime;
 use runtime::ToolProcessInfo;
+mod install;
 
 // ===== 内置工具注册表 =====
 
@@ -77,6 +78,8 @@ struct ToolSpec {
     extract_all: bool,
     /// true 时下载的是裸 exe(非 zip),直接放入工具目录不经过解压。
     raw_exe: bool,
+    /// 整包更新时保留的顶层用户数据目录,其余程序文件完整替换。
+    preserved_dirs: &'static [&'static str],
     homepage: String,
 }
 
@@ -95,6 +98,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://geekuninstaller.com".into(),
         },
         ToolSpec {
@@ -112,6 +116,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec!["Everything.lng".into()],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://www.voidtools.com/zh-cn/".into(),
         },
         ToolSpec {
@@ -130,6 +135,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://gonavi.org".into(),
         },
         ToolSpec {
@@ -151,6 +157,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec!["portable.dbx".into()],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://dbxio.com".into(),
         },
         ToolSpec {
@@ -176,6 +183,7 @@ fn registry() -> Vec<ToolSpec> {
             ],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://diskanalyzer.com".into(),
         },
         ToolSpec {
@@ -198,6 +206,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec!["portable.ini".into()],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://ccswitch.io".into(),
         },
         ToolSpec {
@@ -219,6 +228,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: true,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://github.com/cxasm/notepad--".into(),
         },
         ToolSpec {
@@ -240,6 +250,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: true,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://hiddify.com".into(),
         },
         ToolSpec {
@@ -259,6 +270,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: false,
             raw_exe: true,
+            preserved_dirs: &[],
             homepage: "https://usemagpie.ai".into(),
         },
         ToolSpec {
@@ -278,7 +290,27 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: false,
             raw_exe: true,
+            preserved_dirs: &[],
             homepage: "https://github.com/Ray-lea/Argus".into(),
+        },
+        ToolSpec {
+            id: "nyaterm".into(),
+            name: "NyaTerm".into(),
+            group: "system".into(),
+            description: "开源远程终端与服务器管理工具,支持 SSH、SFTP、串口、RDP/VNC、分屏和 AI 助手,Windows 10/11 x64 便携版。".into(),
+            download_url:
+                "https://github.com/nyakang/nyaterm/releases/download/{tag}/NyaTerm_{version}_windows_x64_portable.zip"
+                    .into(),
+            update_url: "https://github.com/nyakang/nyaterm/releases/latest".into(),
+            fallback_page_url: String::new(),
+            version_source: VersionSource::RedirectTag,
+            exe_entry: "NyaTerm.exe".into(),
+            // 运行库、协议辅助程序和 nyaterm-portable 标记都必须完整保留。
+            extra_entries: vec![],
+            extract_all: true,
+            raw_exe: false,
+            preserved_dirs: &["data"],
+            homepage: "https://nyaterm.app".into(),
         },
         ToolSpec {
             id: "tbtool".into(),
@@ -293,6 +325,7 @@ fn registry() -> Vec<ToolSpec> {
             extra_entries: vec![],
             extract_all: false,
             raw_exe: false,
+            preserved_dirs: &[],
             homepage: "https://www.tbtool.cn".into(),
         },
     ]
@@ -873,7 +906,12 @@ async fn install_tool(
         let path = if extracted_spec.raw_exe {
             install_raw_exe(&package_path, &extracted_spec.exe_entry, &install_dir)
         } else if extracted_spec.extract_all {
-            extract_all_entries(&package_path, &extracted_spec.exe_entry, &install_dir)
+            install::extract_preserving_dirs(
+                &package_path,
+                &extracted_spec.exe_entry,
+                &install_dir,
+                extracted_spec.preserved_dirs,
+            )
         } else {
             let mut entries = vec![extracted_spec.exe_entry.clone()];
             entries.extend(extracted_spec.extra_entries.iter().cloned());
