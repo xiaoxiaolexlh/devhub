@@ -8,6 +8,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test:launcher": "node --test tools/test-launcher.mjs tools/test-app-startup.mjs tools/test-tool-cards.mjs tools/test-tool-errors.mjs",
+    "test:launcher-ui": "node --experimental-websocket tools/test-launcher-ui.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

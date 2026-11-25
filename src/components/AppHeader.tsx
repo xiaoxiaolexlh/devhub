@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { AppMode, useApp } from "@/stores/app";
+import { APP_MODES } from "@/lib/modes";
+import { useApp } from "@/stores/app";
 import { Button } from "@/components/ui/Button";
 import {
   DropdownMenu,
@@ -11,90 +12,12 @@ import {
 } from "@/components/ui/DropdownMenu";
 import {
   ArrowLeft,
-  Bot,
-  BrainCircuit,
   ChevronDown,
-  FolderSync,
   Layers,
-  MonitorCog,
-  Package,
-  PanelsTopLeft,
-  Puzzle,
-  ServerCog,
   Settings,
-  TerminalSquare,
-  Trash2,
 } from "lucide-react";
 
-export interface ModeMeta {
-  mode: AppMode;
-  title: string;
-  desc: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-export const APP_MODES: ModeMeta[] = [
-  {
-    mode: "extensions",
-    title: "扩展同步",
-    desc: "编辑器间同步扩展目录",
-    icon: Puzzle,
-  },
-  {
-    mode: "project-configs",
-    title: "项目配置同步",
-    desc: "同步项目内的配置目录",
-    icon: FolderSync,
-  },
-  {
-    mode: "hbuilderx-cli",
-    title: "HBuilderX CLI",
-    desc: "uni-app 运行与发行命令行",
-    icon: TerminalSquare,
-  },
-  {
-    mode: "node-services",
-    title: "Node 服务管理",
-    desc: "快捷管理本地 Node 服务与终端",
-    icon: ServerCog,
-  },
-  {
-    mode: "directory-cleaner",
-    title: "目录清理",
-    desc: "规则化按目录预览与清理",
-    icon: Trash2,
-  },
-  {
-    mode: "ai-configs",
-    title: "AI 配置管理",
-    desc: "全局管理各 AI 工具配置",
-    icon: Bot,
-  },
-  {
-    mode: "ai-agents",
-    title: "AI Agent 管理",
-    desc: "一键安装更新 CLI Agent",
-    icon: BrainCircuit,
-  },
-  {
-    mode: "terminal-manager",
-    title: "AI 终端管理",
-    desc: "项目级 Windows Terminal 会话管理",
-    icon: PanelsTopLeft,
-  },
-  {
-    mode: "tool-manager",
-    title: "工具管理",
-    desc: "集中下载更新常用便携工具",
-    icon: Package,
-  },
-  {
-    mode: "system-settings",
-    title: "系统设置",
-    desc: "Windows 环境变量、系统文件夹与电源显示",
-    icon: MonitorCog,
-  },
-];
+export { APP_MODES, type ModeMeta } from "@/lib/modes";
 
 interface AppHeaderProps {
   title: string;

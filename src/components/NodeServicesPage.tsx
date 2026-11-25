@@ -1,3 +1,4 @@
+import { useModeActive } from "@/lib/modeVisibility";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -70,6 +71,7 @@ interface TaskLog {
 const HTTP_READY_PATTERN = /HTTP_SERVER_READY (https?:\/\/\S+)/;
 
 export function NodeServicesPage({ onOpenSettings }: Props) {
+  const active = useModeActive();
   const { settings, saveSettings } = useApp();
   const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
   const [serviceInfo, setServiceInfo] = useState<Record<string, NodeServiceInfo>>({});
@@ -286,8 +288,10 @@ export function NodeServicesPage({ onOpenSettings }: Props) {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    if (!active) return;
     void getCurrentWindow()
       .onDragDropEvent((event) => {
+        if (disposed) return;
         if (event.payload.type === "leave") {
           setDropActive(false);
           return;
@@ -306,7 +310,7 @@ export function NodeServicesPage({ onOpenSettings }: Props) {
       disposed = true;
       unlisten?.();
     };
-  }, [addDroppedServices]);
+  }, [active, addDroppedServices]);
 
   async function updateSettings(patch: Partial<Settings>) {
     await saveSettings({ ...currentSettings, ...patch });

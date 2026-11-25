@@ -30,6 +30,7 @@ import {
   type ToolListItem,
 } from "@/lib/tauri";
 import { useApp } from "@/stores/app";
+import { useModeActive } from "@/lib/modeVisibility";
 
 interface Props {
   onOpenSettings: () => void;
@@ -45,6 +46,7 @@ function baseName(path: string) {
 }
 
 export function ToolManagerPage({ onOpenSettings }: Props) {
+  const active = useModeActive();
   const customTools = useApp((s) => s.settings?.custom_tools ?? []);
   const [tools, setTools] = useState<ToolListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +61,28 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
   const [restarting, setRestarting] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<string>("all");
   const [dropActive, setDropActive] = useState(false);
+  const toolFocusId = useApp((s) => s.toolFocusId);
+
+  useEffect(() => {
+    if (!active || !toolFocusId) return;
+    const custom = toolFocusId.startsWith("custom:");
+    const id = toolFocusId.slice(toolFocusId.indexOf(":") + 1);
+    const tool = custom ? customTools.find((tool) => tool.id === id) : tools.find((tool) => tool.id === id);
+    if (!tool) return;
+    setSelectedGroup(custom ? CUSTOM_GROUP : (tool as ToolListItem).group);
+  }, [active, toolFocusId, tools, customTools]);
+
+  useEffect(() => {
+    if (!active || !toolFocusId) return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(`tool-card-${toolFocusId}`);
+      if (!target) return;
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.focus({ preventScroll: true });
+      useApp.getState().setToolFocusId(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [active, toolFocusId, selectedGroup, tools, customTools]);
 
   // 分组来自后端写死的 TOOL_GROUPS,这里按工具列表首次出现顺序去重,
   // 顺序与 registry 一致(即 TOOL_GROUPS 定义顺序)。
@@ -114,10 +138,12 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
   // 拖入 exe 登记为自定义工具。ToolManagerPage 挂载期间独占窗口拖放事件,
   // 不与其它页面冲突。
   useEffect(() => {
+    if (!active) { setDropActive(false); return; }
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void getCurrentWindow()
       .onDragDropEvent((event) => {
+        if (disposed) return;
         if (event.payload.type === "leave") {
           setDropActive(false);
           return;
@@ -136,7 +162,7 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [active]);
 
   async function persistCustomTools(next: CustomTool[]) {
     const store = useApp.getState();
@@ -489,8 +515,8 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
             <main className="flex-1 overflow-auto p-8">
               <div className="mx-auto flex max-w-3xl flex-col gap-5">
                 {visibleTools.map((tool) => (
+                  <div key={tool.id} id={`tool-card-tool:${tool.id}`} tabIndex={-1} className="rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent">
                   <ToolCard
-                    key={tool.id}
                     tool={tool}
                     checking={checkingIds.includes(tool.id)}
                     busy={busyIds.includes(tool.id)}
@@ -501,6 +527,7 @@ export function ToolManagerPage({ onOpenSettings }: Props) {
                     onOpenDir={() => void openDir(tool.id)}
                     onHomepage={() => void openHomepage(tool)}
                   />
+                  </div>
                 ))}
                 {visibleTools.length === 0 && (
                   <div className="py-12 text-center text-sm text-fg-muted">
@@ -758,14 +785,15 @@ function CustomToolsSection({
           </div>
         ) : (
           tools.map((tool) => (
+            <div key={tool.id} id={`tool-card-custom:${tool.id}`} tabIndex={-1} className="rounded-2xl focus:outline-none focus:ring-2 focus:ring-accent">
             <CustomToolCard
-              key={tool.id}
               tool={tool}
               onOpen={() => onOpen(tool)}
               onOpenDir={() => onOpenDir(tool)}
               onRename={(name) => onRename(tool, name)}
               onRemove={() => onRemove(tool)}
             />
+            </div>
           ))
         )}
       </div>

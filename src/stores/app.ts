@@ -33,6 +33,8 @@ interface AppState {
   appMode: AppMode;
   /** 进入设置页时所在的工作台,用于设置页的「返回」按钮。 */
   settingsReturnMode: AppMode;
+  toolFocusId: string | null;
+  setToolFocusId: (id: string | null) => void;
   recentProjectRoots: string[];
 
   sourceEditorId: string;
@@ -138,6 +140,8 @@ export const useApp = create<AppState>((set, get) => ({
   settings: null,
   appMode: "home",
   settingsReturnMode: "home",
+  toolFocusId: null,
+  setToolFocusId: (toolFocusId) => set({ toolFocusId }),
   recentProjectRoots: [],
 
   sourceEditorId: "vscode",

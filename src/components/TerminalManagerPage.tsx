@@ -1,3 +1,4 @@
+import { useModeActive } from "@/lib/modeVisibility";
 import { useCallback, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -77,6 +78,7 @@ function loadSidebarWidth(): number {
 }
 
 export function TerminalManagerPage({ onOpenSettings }: Props) {
+  const active = useModeActive();
   const { settings, saveSettings } = useApp();
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | "all" | null>(null);
@@ -271,6 +273,7 @@ export function TerminalManagerPage({ onOpenSettings }: Props) {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    if (!active) return;
     const isOverProjectList = (position: { x: number; y: number }) => {
       const rect = projectListRef.current?.getBoundingClientRect();
       if (!rect) return false;
@@ -281,6 +284,7 @@ export function TerminalManagerPage({ onOpenSettings }: Props) {
     };
 
     void getCurrentWindow().onDragDropEvent((event) => {
+      if (disposed) return;
       if (event.payload.type === "leave") {
         setProjectDropActive(false);
         return;
@@ -300,7 +304,7 @@ export function TerminalManagerPage({ onOpenSettings }: Props) {
       disposed = true;
       unlisten?.();
     };
-  }, [addDroppedProjects]);
+  }, [active, addDroppedProjects]);
 
   async function pickProjectPath() {
     if (!projectDraft) return;

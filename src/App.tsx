@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import {
@@ -9,6 +10,9 @@ import {
 } from "@/lib/workspace";
 import { tauri } from "@/lib/tauri";
 import { useApp } from "@/stores/app";
+import type { AppMode } from "@/stores/app";
+import { DEFAULT_LAUNCHER_SETTINGS } from "@/lib/launcher";
+import { ModeVisibility } from "@/lib/modeVisibility";
 import { Loader2 } from "lucide-react";
 
 import { CommandPalette } from "@/components/CommandPalette";
@@ -88,6 +92,31 @@ function App() {
   const workspaceSingleFile = workspaceSingleFileFromUrl();
   const closeConfirmedRef = useRef(false);
   const closePromptActiveRef = useRef(false);
+  const exitRequestedRef = useRef(false);
+  const [closeHandlerReady, setCloseHandlerReady] = useState(false);
+
+  useEffect(() => {
+    if (workspaceRoot || !ready || !closeHandlerReady) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    const navigate = async () => {
+      const navigation = await tauri.launcherTakeNavigation();
+      if (disposed || !navigation) return;
+      if (navigation.mode === "exit") {
+        exitRequestedRef.current = true;
+        await getCurrentWindow().close();
+      } else {
+        if (navigation.toolId) useApp.getState().setToolFocusId(navigation.toolId);
+        setAppMode(navigation.mode as AppMode);
+      }
+    };
+    void listen("devhub:navigate", () => { void navigate(); }).then((unlisten) => {
+      if (disposed) { unlisten(); return; }
+      stop = unlisten;
+      void navigate();
+    });
+    return () => { disposed = true; stop?.(); };
+  }, [ready, closeHandlerReady, workspaceRoot, setAppMode]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -130,9 +159,8 @@ function App() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    // Always preventDefault first (async work needed), then force-close with
-    // destroy(). Calling close() from inside this handler deadlocks: close()
-    // waits for the handler to finish, while the handler awaits close().
+    // Prevent the native close while choosing background mode or checking tasks.
+    // Complete exit uses the app command because the hidden launcher stays alive.
     void appWindow.onCloseRequested(async (event) => {
       if (closeConfirmedRef.current) return;
       event.preventDefault();
@@ -140,6 +168,11 @@ function App() {
       closePromptActiveRef.current = true;
 
       try {
+        const launcher = useApp.getState().settings?.launcher ?? DEFAULT_LAUNCHER_SETTINGS;
+        if (!exitRequestedRef.current && launcher.close_to_tray && (await tauri.launcherStatus()).trayAvailable) {
+          await tauri.launcherHideMain();
+          return;
+        }
         const [hbxRuns, nodeTasks] = await Promise.all([
           tauri.getHBuilderXWebRuns(),
           tauri.nodeServiceListTasks(),
@@ -148,7 +181,7 @@ function App() {
         const nodeRunning = nodeTasks.filter((task) => task.running).length;
         if (hbxRunning === 0 && nodeRunning === 0) {
           closeConfirmedRef.current = true;
-          await appWindow.destroy();
+          await tauri.launcherExit();
           return;
         }
 
@@ -173,20 +206,21 @@ function App() {
         const failed = [...hbxResults, ...nodeResults].filter((item) => !item.success);
         if (failed.length > 0) {
           await message(
-            `有 ${failed.length} 个 HBuilderX WEB 任务未能终止，已取消退出。`,
+            `有 ${failed.length} 个任务未能终止，已取消退出。`,
             { title: "退出已取消", kind: "error" },
           );
           return;
         }
 
         closeConfirmedRef.current = true;
-        await appWindow.destroy();
+        await tauri.launcherExit();
       } catch (e) {
         closeConfirmedRef.current = false;
         await message(String(e), { title: "退出失败", kind: "error" });
       } finally {
         if (!closeConfirmedRef.current) {
           closePromptActiveRef.current = false;
+          exitRequestedRef.current = false;
         }
       }
     }).then((fn) => {
@@ -194,6 +228,7 @@ function App() {
         fn();
       } else {
         unlisten = fn;
+        setCloseHandlerReady(true);
       }
     });
 
@@ -216,31 +251,8 @@ function App() {
             initialFile={workspaceFile}
             singleFile={workspaceSingleFile}
           />
-        ) : appMode === "extensions" ? (
-          <ExtensionSyncPage onOpenSettings={openSettings} />
-        ) : appMode === "project-configs" ? (
-          <ProjectConfigSyncPage onOpenSettings={openSettings} />
-        ) : appMode === "hbuilderx-cli" ? (
-          <HBuilderXCliPage onOpenSettings={openSettings} />
-        ) : appMode === "node-services" ? (
-          <NodeServicesPage onOpenSettings={openSettings} />
-        ) : appMode === "directory-cleaner" ? (
-          <DirectoryCleanerPage onOpenSettings={openSettings} />
-        ) : appMode === "ai-configs" ? (
-          <AiConfigPage onOpenSettings={openSettings} />
-        ) : appMode === "ai-agents" ? (
-          <AiAgentManagerPage onOpenSettings={openSettings} />
-        ) : appMode === "terminal-manager" ? (
-          <TerminalManagerPage onOpenSettings={openSettings} />
-        ) : appMode === "tool-manager" ? (
-          <ToolManagerPage onOpenSettings={openSettings} />
-        ) : appMode === "system-settings" ? (
-          <SystemSettingsPage onOpenSettings={openSettings} />
-        ) : appMode === "settings" ? (
-          <SettingsPage />
-        ) : (
-          <ModeSelectPage onOpenSettings={openSettings} />
-        )}
+        ) : <ModeWorkspaces mode={appMode} onOpenSettings={openSettings} />}
+
         {!workspaceRoot && (
           <CommandPalette
             open={openPalette}
@@ -263,3 +275,26 @@ function LoadingScreen({ text }: { text: string }) {
 }
 
 export default App;
+
+function ModeWorkspaces({ mode, onOpenSettings }: { mode: AppMode; onOpenSettings: () => void }) {
+  const [visited, setVisited] = useState<AppMode[]>([mode]);
+  useEffect(() => { setVisited((modes) => modes.includes(mode) ? modes : [...modes, mode]); }, [mode]);
+  const modes = visited.includes(mode) ? visited : [...visited, mode];
+  return <>{modes.map((entry) => <ModeVisibility.Provider key={entry} value={entry === mode}>
+    <div className="h-full w-full" style={{ display: entry === mode ? undefined : "none" }} inert={entry !== mode} aria-hidden={entry !== mode}>
+      <Suspense fallback={<LoadingScreen text="正在加载页面..." />}>
+        {entry === "settings" ? <SettingsPage /> : entry === "home" ? <ModeSelectPage onOpenSettings={onOpenSettings} /> :
+          entry === "extensions" ? <ExtensionSyncPage onOpenSettings={onOpenSettings} /> :
+          entry === "project-configs" ? <ProjectConfigSyncPage onOpenSettings={onOpenSettings} /> :
+          entry === "hbuilderx-cli" ? <HBuilderXCliPage onOpenSettings={onOpenSettings} /> :
+          entry === "node-services" ? <NodeServicesPage onOpenSettings={onOpenSettings} /> :
+          entry === "directory-cleaner" ? <DirectoryCleanerPage onOpenSettings={onOpenSettings} /> :
+          entry === "ai-configs" ? <AiConfigPage onOpenSettings={onOpenSettings} /> :
+          entry === "ai-agents" ? <AiAgentManagerPage onOpenSettings={onOpenSettings} /> :
+          entry === "terminal-manager" ? <TerminalManagerPage onOpenSettings={onOpenSettings} /> :
+          entry === "tool-manager" ? <ToolManagerPage onOpenSettings={onOpenSettings} /> :
+          entry === "system-settings" ? <SystemSettingsPage onOpenSettings={onOpenSettings} /> : null}
+      </Suspense>
+    </div>
+  </ModeVisibility.Provider>)}</>;
+}

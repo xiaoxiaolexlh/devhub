@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { LauncherSettingsSection } from "@/components/LauncherSettingsSection";
+import { useModeActive } from "@/lib/modeVisibility";
 import { cn } from "@/lib/utils";
 import {
   type ConflictStrategy,
@@ -42,6 +44,7 @@ type SectionId =
   | "project-roots"
   | "hbuilderx"
   | "defaults"
+  | "launcher"
   | "update";
 
 const SECTIONS: {
@@ -55,10 +58,12 @@ const SECTIONS: {
   { id: "project-roots", title: "固定项目库", icon: FolderKanban },
   { id: "hbuilderx", title: "HBuilderX CLI", icon: TerminalSquare },
   { id: "defaults", title: "默认行为", icon: SlidersHorizontal },
+  { id: "launcher", title: "快捷面板", icon: MousePointerClick },
   { id: "update", title: "检查更新", icon: RefreshCw },
 ];
 
 export function SettingsPage() {
+  const active = useModeActive();
   const { settings, saveSettings, setAppMode, settingsReturnMode } = useApp();
   const [draft, setDraft] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
@@ -85,7 +90,7 @@ export function SettingsPage() {
   const sectionsReady = draft !== null;
   useEffect(() => {
     const root = scrollRef.current;
-    if (!root || !sectionsReady) return;
+    if (!active || !root || !sectionsReady) return;
     const updateActive = () => {
       const anchorTop = root.getBoundingClientRect().top;
       let current = SECTIONS[0].id;
@@ -108,7 +113,7 @@ export function SettingsPage() {
       root.removeEventListener("scroll", updateActive);
       window.removeEventListener("resize", updateActive);
     };
-  }, [sectionsReady]);
+  }, [active, sectionsReady]);
 
   const goBack = useCallback(async () => {
     if (dirty) {
@@ -935,6 +940,16 @@ export function SettingsPage() {
                   </Select>
                 </Field>
               </div>
+            </SettingsCard>
+
+            <SettingsCard
+              id="launcher"
+              icon={MousePointerClick}
+              title="快捷面板"
+              desc="全局呼出功能模式和工具，管理后台常驻行为。"
+              refs={sectionRefs}
+            >
+              <LauncherSettingsSection value={draft.launcher} onChange={(value) => update("launcher", value)} />
             </SettingsCard>
 
             <SettingsCard

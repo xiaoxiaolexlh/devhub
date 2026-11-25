@@ -493,7 +493,9 @@ pub async fn tool_check_updates(tool_id: String) -> Result<UpdateInfo, ToolCheck
 
 #[tauri::command]
 pub async fn tool_download(app: AppHandle, tool_id: String) -> Result<ToolListItem, ToolInstallError> {
-    install_tool(&app, &tool_id, false).await
+    let item = install_tool(&app, &tool_id, false).await?;
+    let _ = app.emit("devhub:tools-changed", ());
+    Ok(item)
 }
 
 #[tauri::command]
@@ -502,7 +504,9 @@ pub async fn tool_update(
     tool_id: String,
     close_running: Option<bool>,
 ) -> Result<ToolListItem, ToolInstallError> {
-    install_tool(&app, &tool_id, close_running.unwrap_or(false)).await
+    let item = install_tool(&app, &tool_id, close_running.unwrap_or(false)).await?;
+    let _ = app.emit("devhub:tools-changed", ());
+    Ok(item)
 }
 
 #[tauri::command]

@@ -1446,11 +1446,25 @@ pub fn get_settings() -> Settings {
 }
 
 #[tauri::command]
-pub fn save_settings(settings: Settings) -> Result<(), String> {
+pub async fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || save_settings_inner(&app, settings))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn save_settings_inner(app: &tauri::AppHandle, settings: Settings) -> Result<(), String> {
     let settings = settings::normalize_terminal_settings(settings)?;
     let settings = settings::normalize_open_method_settings(settings)?;
-    settings::save(&settings)?;
-    *SETTINGS.lock().unwrap() = settings;
+    let mut current = SETTINGS.lock().unwrap();
+    let changed = current.launcher != settings.launcher;
+    if changed {
+        crate::launcher::save_settings_transaction(app, &settings.launcher, || settings::save(&settings))?;
+    } else {
+        settings::save(&settings)?;
+    }
+    *current = settings;
+    drop(current);
+    let _ = app.emit("devhub:settings-changed", ());
     Ok(())
 }
 

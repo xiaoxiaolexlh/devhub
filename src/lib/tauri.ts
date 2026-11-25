@@ -566,6 +566,34 @@ export interface CustomTool {
   exe_path: string;
 }
 
+export interface LauncherSettings {
+  enabled: boolean;
+  shortcut: string;
+  close_to_tray: boolean;
+}
+
+export interface LauncherStatus {
+  registered: boolean;
+  error: string | null;
+  trayAvailable: boolean;
+}
+
+export interface LauncherCatalogTool {
+  id: string;
+  name: string;
+  description: string;
+  groupName: string;
+  exePath: string;
+  kind: "tool" | "custom";
+  available: boolean;
+  status: string;
+}
+
+export interface LauncherNavigation {
+  mode: string;
+  toolId: string | null;
+}
+
 export interface Settings {
   settings_version: number;
   editors: Editor[];
@@ -588,6 +616,7 @@ export interface Settings {
   open_methods: OpenMethod[];
   default_open_method_id: string;
   custom_tools: CustomTool[];
+  launcher?: LauncherSettings;
 }
 
 export type CleanerAction = "clear" | "remove";
@@ -932,6 +961,14 @@ export const tauri = {
       action,
     }),
   toolList: () => invoke<ToolListItem[]>("tool_list"),
+  launcherStatus: () => invoke<LauncherStatus>("launcher_status"),
+  launcherToggle: () => invoke<void>("launcher_toggle"),
+  launcherHide: () => invoke<void>("launcher_hide"),
+  launcherHideMain: () => invoke<void>("launcher_hide_main"),
+  launcherExit: () => invoke<void>("launcher_exit"),
+  launcherOpenMode: (mode: string, toolId?: string) => invoke<void>("launcher_open_mode", { mode, toolId: toolId ?? null }),
+  launcherTakeNavigation: () => invoke<LauncherNavigation | null>("launcher_take_navigation"),
+  launcherCatalog: () => invoke<LauncherCatalogTool[]>("launcher_catalog"),
   toolDownload: (toolId: string) =>
     invoke<ToolListItem>("tool_download", { toolId }),
   toolCheckUpdates: (toolId: string) =>

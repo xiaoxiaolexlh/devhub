@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button";
 import { useApp, type AppMode } from "@/stores/app";
-import { ArrowRight, Bot, BrainCircuit, FolderSync, MonitorCog, Package, PanelsTopLeft, Puzzle, Search, Settings, ServerCog, TerminalSquare, Trash2 } from "lucide-react";
+import { ArrowRight, Search, Settings } from "lucide-react";
+import { APP_MODES } from "@/lib/modes";
 
 interface Props {
   onOpenSettings: () => void;
@@ -51,86 +52,11 @@ export function ModeSelectPage({ onOpenSettings }: Props) {
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-8">
           <div className="grid w-full max-w-6xl grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            <ModeCard
-              mode="extensions"
-              title="扩展同步"
-              desc="在 VS Code、Windsurf、Cursor、Trae 等编辑器之间同步扩展目录。"
-              icon={<Puzzle className="h-8 w-8" />}
-              highlights={["扩展对比", "复制到目标", "从目标删除"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="project-configs"
-              title="项目配置同步"
-              desc="把项目中的 .vscode、.windsurf、.trae、.cursor 等配置目录同步到其它项目。"
-              icon={<FolderSync className="h-8 w-8" />}
-              highlights={["项目目录记忆", "配置目录勾选", "冲突预览"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="hbuilderx-cli"
-              title="HBuilderX CLI"
-              desc="管理 uni-app 项目，通过 HBuilderX CLI 快捷运行和发行。"
-              icon={<TerminalSquare className="h-8 w-8" />}
-              highlights={["运行 WEB", "命令复制", "配置导入导出"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="node-services"
-              title="Node 服务管理"
-              desc="添加 Node 项目文件夹，快捷执行 npm / pnpm 命令并实时查看输出，像内置终端一样管理服务。"
-              icon={<ServerCog className="h-8 w-8" />}
-              highlights={["快捷命令", "实时输出", "一键停止"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="directory-cleaner"
-              title="目录清理"
-              desc="按 profile 管理清理目标，预览后永久清空目录或删除目标。"
-              icon={<Trash2 className="h-8 w-8" />}
-              highlights={["JSON 配置", "执行预览", "永久删除"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="ai-configs"
-              title="AI 配置管理"
-              desc="集中管理 Claude、Codex、OpenCode、Pi、Grok 等工具的配置目录。"
-              icon={<Bot className="h-8 w-8" />}
-              highlights={["自定义工具", "双方式打开", "配置导入导出"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="ai-agents"
-              title="AI Agent 管理"
-              desc="检测电脑 Node 环境，通过 npm 一键安装、更新和卸载 Claude Code、Codex、Gemini CLI 等 AI Agent。"
-              icon={<BrainCircuit className="h-8 w-8" />}
-              highlights={["Node 环境检测", "npm 一键安装", "更新与卸载"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="terminal-manager"
-              title="AI 终端管理"
-              desc="按项目和 AI 工具统一启动、切换与关闭独立 Windows Terminal 会话，并可注入分组临时环境变量。"
-              icon={<PanelsTopLeft className="h-8 w-8" />}
-              highlights={["项目绑定", "窗口切换", "临时变量"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="tool-manager"
-              title="工具管理"
-              desc="集中下载、更新和打开常用外部便携工具,内置 Geek、Everything、GoNavi、DBX、WizTree。"
-              icon={<Package className="h-8 w-8" />}
-              highlights={["一键下载", "更新提醒", "双击打开"]}
-              onSelect={setAppMode}
-            />
-            <ModeCard
-              mode="system-settings"
-              title="系统设置"
-              desc="管理 Windows 用户和系统环境变量、系统文件夹位置，以及右键菜单和快捷电源操作。"
-              icon={<MonitorCog className="h-8 w-8" />}
-              highlights={["环境变量", "电源与显示", "系统文件夹"]}
-              onSelect={setAppMode}
-            />
+            {APP_MODES.map((item) => {
+              const Icon = item.icon;
+              return <ModeCard key={item.mode} {...item} icon={<Icon className="h-8 w-8" />} onSelect={setAppMode} />;
+            })}
+
           </div>
         </div>
       </main>

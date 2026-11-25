@@ -495,6 +495,47 @@ pub struct Settings {
     pub default_open_method_id: String,
     /// User-defined exe launchers shown under the "自定义工具" group in the tool manager.
     pub custom_tools: Vec<CustomTool>,
+    pub launcher: LauncherSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct LauncherSettings {
+    pub enabled: bool,
+    pub shortcut: String,
+    pub close_to_tray: bool,
+}
+
+impl Default for LauncherSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shortcut: "Ctrl+Alt+Space".into(),
+            close_to_tray: true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod launcher_settings_tests {
+    use super::*;
+    #[test]
+    fn old_settings_receive_launcher_defaults() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.launcher, LauncherSettings::default());
+        assert_eq!(old.theme, "dark");
+        let partial: Settings = serde_json::from_str(r#"{"launcher":{"enabled":false}}"#).unwrap();
+        assert!(!partial.launcher.enabled);
+        assert_eq!(partial.launcher.shortcut, "Ctrl+Alt+Space");
+        assert!(partial.launcher.close_to_tray);
+    }
+    #[test]
+    fn launcher_configuration_round_trips() {
+        let mut settings = Settings::default();
+        settings.launcher = LauncherSettings { enabled: false, shortcut: "Alt+Shift+K".into(), close_to_tray: false };
+        let restored: Settings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(settings.launcher, restored.launcher);
+    }
 }
 
 impl Default for Settings {
@@ -521,6 +562,7 @@ impl Default for Settings {
             open_methods: default_open_methods(),
             default_open_method_id: "explorer".into(),
             custom_tools: Vec::new(),
+            launcher: LauncherSettings::default(),
         }
     }
 }

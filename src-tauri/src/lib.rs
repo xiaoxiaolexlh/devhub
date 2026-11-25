@@ -4,6 +4,8 @@ mod commands;
 mod editors;
 mod environment;
 mod explorer_menu;
+mod hotkey;
+mod launcher;
 mod manifest;
 mod node_services;
 mod scanner;
@@ -146,6 +148,14 @@ pub fn run() {
             write_workspace_file,
             get_settings,
             save_settings,
+            launcher::launcher_status,
+            launcher::launcher_toggle,
+            launcher::launcher_hide,
+            launcher::launcher_hide_main,
+            launcher::launcher_exit,
+            launcher::launcher_open_mode,
+            launcher::launcher_take_navigation,
+            launcher::launcher_catalog,
             check_running_processes,
             list_terminal_sessions,
             filter_terminal_project_directories,
@@ -192,6 +202,7 @@ pub fn run() {
             ai_agent_task_clear,
         ])
         .setup(move |app| {
+            launcher::setup(app.handle(), &s.launcher)?;
             // best-effort cleanup of expired trash on startup
             syncer::purge_old_trash(s.backup_days);
 
@@ -217,6 +228,16 @@ pub fn run() {
             let _ = main.show();
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == launcher::WINDOW {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    use tauri::Emitter;
+                    let _ = window.emit("devhub:launcher-hidden", ());
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

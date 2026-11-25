@@ -2,8 +2,12 @@ import * as D from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { forwardRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useModeActive } from "@/lib/modeVisibility";
 
-export const Dialog = D.Root;
+export function Dialog(props: React.ComponentPropsWithoutRef<typeof D.Root>) {
+  const active = useModeActive();
+  return <D.Root {...props} open={active ? props.open : false} />;
+}
 export const DialogTrigger = D.Trigger;
 export const DialogClose = D.Close;
 export const DialogTitle = D.Title;
