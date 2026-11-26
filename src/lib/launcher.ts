@@ -57,6 +57,42 @@ export function filterLauncherEntries(entries: LauncherEntry[], query: string): 
   return filtered.sort((left, right) => rank(left) - rank(right));
 }
 
+export type LauncherNavigationKey = "ArrowDown" | "ArrowUp" | "ArrowLeft" | "ArrowRight" | "Home" | "End";
+export interface LauncherNavigationItem { id: string; left: number; top: number; width: number }
+
+/** Wrap within rows horizontally and between rows vertically, retaining the intended column. */
+export function moveLauncherSelection(
+  items: readonly LauncherNavigationItem[], currentId: string | undefined,
+  key: LauncherNavigationKey, preferredX?: number,
+): { id: string; preferredX: number } | undefined {
+  const rows: LauncherNavigationItem[][] = [];
+  for (const item of [...items].sort((a, b) => a.top - b.top || a.left - b.left)) {
+    const row = rows[rows.length - 1];
+    // Allow subpixel rounding at different display scales.
+    if (row && Math.abs(row[0].top - item.top) < 2) row.push(item);
+    else rows.push([item]);
+  }
+  rows.forEach((row) => row.sort((a, b) => a.left - b.left));
+  const ordered = rows.flat();
+  const center = (item: LauncherNavigationItem) => item.left + item.width / 2;
+  const select = (item: LauncherNavigationItem | undefined, x?: number) => item && ({ id: item.id, preferredX: x ?? center(item) });
+  if (key === "Home") return select(ordered[0]);
+  if (key === "End") return select(ordered[ordered.length - 1]);
+  const rowIndex = rows.findIndex((row) => row.some((item) => item.id === currentId));
+  if (rowIndex < 0) return select(ordered[0]);
+  const row = rows[rowIndex];
+  const column = row.findIndex((item) => item.id === currentId);
+  const current = row[column];
+  if (key === "ArrowLeft" || key === "ArrowRight") {
+    const nextColumn = (column + (key === "ArrowRight" ? 1 : -1) + row.length) % row.length;
+    return select(row[nextColumn]);
+  }
+  const x = preferredX ?? center(current);
+  const nextRow = rows[(rowIndex + (key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length];
+  const nearest = nextRow.reduce((best, item) => Math.abs(center(item) - x) < Math.abs(center(best) - x) ? item : best);
+  return select(nearest, x);
+}
+
 export function readLauncherHistory(): LauncherHistory {
   try {
     const parsed = JSON.parse(localStorage.getItem(LAUNCHER_HISTORY_KEY) ?? "{}");

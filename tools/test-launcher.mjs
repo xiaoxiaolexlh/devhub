@@ -57,6 +57,103 @@ test("search supports Chinese, case-insensitive names, ids and multiple terms", 
   assert.equal(helper.filterLauncherEntries(entries, "hbuilderx-cli")[0].mode, "hbuilderx-cli");
   assert.deepEqual(helper.filterLauncherEntries(entries, "不存在的入口"), []);
 });
+
+const navigationLayout = (...rows) => rows.flatMap((ids, row) => ids.map((id, column) => ({ id, left: column * 112, top: row * 140, width: 104 })));
+const groupedLayout = navigationLayout(
+  ["geek", "everything", "settings"],
+  ["extensions", "project-configs", "hbuilderx", "node", "cleaner", "ai-configs"],
+  ["ai-agents", "terminal", "tools", "system"],
+  ["missing", "manual", "custom"],
+);
+const move = (id, key, layout = groupedLayout) => helper.moveLauncherSelection(layout, id, key)?.id;
+
+test("vertical navigation follows rendered rows across section gaps", () => {
+  assert.equal(move("settings", "ArrowDown"), "hbuilderx");
+  assert.equal(move("hbuilderx", "ArrowUp"), "settings");
+  assert.equal(move("hbuilderx", "ArrowDown"), "tools");
+  assert.equal(move("tools", "ArrowDown"), "custom");
+  assert.equal(move("custom", "ArrowUp"), "tools");
+  assert.equal(move("ai-configs", "ArrowDown"), "system");
+});
+
+test("horizontal arrows wrap within the current row and vertical arrows wrap between end rows", () => {
+  assert.equal(move("hbuilderx", "ArrowLeft"), "project-configs");
+  assert.equal(move("hbuilderx", "ArrowRight"), "node");
+  assert.equal(move("settings", "ArrowRight"), "geek");
+  assert.equal(move("geek", "ArrowLeft"), "settings");
+  assert.equal(move("system", "ArrowRight"), "ai-agents");
+  assert.equal(move("missing", "ArrowLeft"), "custom");
+  assert.equal(move("geek", "ArrowUp"), "missing");
+  assert.equal(move("custom", "ArrowDown"), "settings");
+});
+
+test("vertical intent survives several short rows and reverses to the original column", () => {
+  let selection = { id: "ai-configs" };
+  const path = [];
+  for (const key of ["ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp"]) {
+    selection = helper.moveLauncherSelection(groupedLayout, selection.id, key, selection.preferredX);
+    path.push(selection.id);
+  }
+  assert.deepEqual(path, ["system", "custom", "settings", "ai-configs", "settings", "custom", "system", "ai-configs"]);
+  selection = helper.moveLauncherSelection(groupedLayout, "system", "ArrowLeft", selection.preferredX);
+  assert.equal(helper.moveLauncherSelection(groupedLayout, selection.id, "ArrowUp", selection.preferredX).id, "hbuilderx");
+});
+
+test("a full vertical cycle returns every entry to its starting column in either direction", () => {
+  for (const item of groupedLayout) {
+    for (const key of ["ArrowUp", "ArrowDown"]) {
+      let selection = { id: item.id };
+      for (let step = 0; step < 8; step++) {
+        selection = helper.moveLauncherSelection(groupedLayout, selection.id, key, selection.preferredX);
+        if (step % 4 === 3) assert.equal(selection.id, item.id, `${item.id} ${key}`);
+      }
+    }
+  }
+});
+
+test("wrapping horizontally replaces the old vertical anchor with the new column", () => {
+  const shortRow = helper.moveLauncherSelection(groupedLayout, "ai-configs", "ArrowDown");
+  const wrapped = helper.moveLauncherSelection(groupedLayout, shortRow.id, "ArrowRight", shortRow.preferredX);
+  assert.equal(wrapped.id, "ai-agents");
+  assert.equal(helper.moveLauncherSelection(groupedLayout, wrapped.id, "ArrowUp", wrapped.preferredX).id, "extensions");
+});
+
+test("navigation supports responsive rows, fractional coordinates and nonuniform widths", () => {
+  const layout = [
+    { id: "a", left: 0, top: 0.5, width: 100 },
+    { id: "b", left: 108, top: 0, width: 100 },
+    { id: "c", left: 216, top: 0.75, width: 100 },
+    { id: "d", left: 0, top: 142, width: 230 },
+    { id: "e", left: 238, top: 142, width: 100 },
+  ];
+  assert.equal(move("a", "ArrowRight", layout), "b");
+  assert.equal(move("c", "ArrowDown", layout), "e");
+  assert.equal(move("d", "ArrowUp", layout), "b");
+  const narrow = navigationLayout(["a", "b"], ["c", "d"], ["e"]);
+  assert.equal(move("b", "ArrowDown", narrow), "d");
+  assert.equal(move("b", "ArrowRight", narrow), "a");
+});
+
+test("search navigation moves one result vertically and handles a single or empty result", () => {
+  const layout = navigationLayout(["first"], ["second"], ["third"]);
+  assert.equal(move("first", "ArrowDown", layout), "second");
+  assert.equal(move("second", "ArrowUp", layout), "first");
+  assert.equal(move("first", "ArrowUp", layout), "third");
+  assert.equal(move("third", "ArrowDown", layout), "first");
+  assert.equal(move("second", "ArrowRight", layout), "second");
+  for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
+    assert.equal(move("only", key, navigationLayout(["only"])), "only");
+    assert.equal(move(undefined, key, []), undefined);
+  }
+  assert.equal(move("removed", "ArrowDown", layout), "first");
+});
+
+test("Home and End explicitly jump to the first and last rendered entries", () => {
+  assert.equal(move("hbuilderx", "Home"), "geek");
+  assert.equal(move("hbuilderx", "End"), "custom");
+  assert.equal(move(undefined, "Home", []), undefined);
+  assert.equal(move(undefined, "End", []), undefined);
+});
 test("mode clicks navigate and managed tools use the existing launch command", async () => {
   calls.length = 0; modeCalls.length = 0;
   await helper.activateLauncherEntry(helper.buildLauncherEntries([])[0], openMode);
