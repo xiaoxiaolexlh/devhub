@@ -16,6 +16,8 @@ mod system_settings;
 mod terminal;
 mod tools;
 
+use tauri::Manager;
+
 use ai_agents::{
     ai_agent_check_node, ai_agent_install, ai_agent_latest_versions, ai_agent_list,
     ai_agent_task_clear, ai_agent_task_list, ai_agent_task_stop, ai_agent_uninstall,
@@ -231,11 +233,18 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() == launcher::WINDOW {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
-                    use tauri::Emitter;
-                    let _ = window.emit("devhub:launcher-hidden", ());
+                let result = match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        launcher::hide(window.app_handle())
+                    }
+                    tauri::WindowEvent::Focused(_) => {
+                        launcher::sync_background_escape(window.app_handle())
+                    }
+                    _ => Ok(()),
+                };
+                if let Err(error) = result {
+                    eprintln!("快捷面板窗口事件处理失败: {error}");
                 }
             }
         })

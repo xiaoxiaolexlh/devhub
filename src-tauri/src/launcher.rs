@@ -1,6 +1,6 @@
 use crate::{
     commands,
-    hotkey::{HotkeyService, Shortcut},
+    hotkey::{BackgroundHotkey, HotkeyService, Shortcut},
     settings::LauncherSettings,
     tools,
 };
@@ -27,6 +27,7 @@ pub struct Navigation {
 
 pub struct LauncherRuntime {
     hotkey: HotkeyService,
+    background_escape: BackgroundHotkey,
     status: Mutex<LauncherStatus>,
     navigation: Mutex<Option<Navigation>>,
 }
@@ -42,6 +43,21 @@ pub fn setup(app: &tauri::AppHandle, settings: &LauncherSettings) -> Result<(), 
             }
         });
     })?;
+    let escape_app = app.clone();
+    let background_escape = BackgroundHotkey::new(Shortcut::ESCAPE, move || {
+        let app = escape_app.clone();
+        let main_thread = app.clone();
+        let _ = main_thread.run_on_main_thread(move || {
+            // A queued hotkey must not dismiss a window that has regained focus.
+            if let Some(window) = app.get_webview_window(WINDOW) {
+                if window.is_visible().unwrap_or(false) && !window.is_focused().unwrap_or(true) {
+                    if let Err(error) = hide(&app) {
+                        eprintln!("快捷面板收起失败: {error}");
+                    }
+                }
+            }
+        });
+    })?;
     let registration = if settings.enabled {
         Shortcut::parse(&settings.shortcut).and_then(|key| hotkey.configure(Some(key)))
     } else {
@@ -52,6 +68,7 @@ pub fn setup(app: &tauri::AppHandle, settings: &LauncherSettings) -> Result<(), 
         .is_ok();
     app.manage(LauncherRuntime {
         hotkey,
+        background_escape,
         status: Mutex::new(LauncherStatus {
             registered: settings.enabled && registration.is_ok(),
             error: registration.err(),
@@ -174,7 +191,20 @@ fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
         .emit("devhub:launcher-shown", ())
         .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())
+    let focused = window.set_focus().map_err(|e| e.to_string());
+    // Cover a show operation where Windows declines foreground activation.
+    sync_background_escape(app)?;
+    focused
+}
+
+pub fn sync_background_escape(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_webview_window(WINDOW).ok_or("快捷面板不存在")?;
+    app.state::<LauncherRuntime>()
+        .background_escape
+        .sync_window(
+            window.is_visible().map_err(|e| e.to_string())?,
+            window.is_focused().map_err(|e| e.to_string())?,
+        )
 }
 
 pub fn save_settings_transaction(
@@ -230,9 +260,12 @@ pub fn launcher_hide(app: tauri::AppHandle) -> Result<(), String> {
     hide(&app)
 }
 
-fn hide(app: &tauri::AppHandle) -> Result<(), String> {
+pub fn hide(app: &tauri::AppHandle) -> Result<(), String> {
     let window = app.get_webview_window(WINDOW).ok_or("快捷面板不存在")?;
     window.hide().map_err(|e| e.to_string())?;
+    app.state::<LauncherRuntime>()
+        .background_escape
+        .sync_window(false, false)?;
     window
         .emit("devhub:launcher-hidden", ())
         .map_err(|e| e.to_string())

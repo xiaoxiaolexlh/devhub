@@ -8,6 +8,11 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
+    pub const ESCAPE: Self = Self {
+        modifiers: 0,
+        key: 0x1B,
+    };
+
     pub fn parse(value: &str) -> Result<Self, String> {
         let parts: Vec<_> = value.split('+').map(str::trim).collect();
         let (key, modifiers) = parts.split_last().ok_or("请输入快捷键")?;
@@ -210,6 +215,60 @@ mod platform {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn background_shortcut_tracks_visibility_focus_and_releases_on_drop() {
+            // Exercise real registration without reserving the user's Escape key.
+            let key = Shortcut::parse("Ctrl+Alt+Shift+F19").unwrap();
+            let (tx, rx) = mpsc::channel();
+            let background = crate::hotkey::BackgroundHotkey::new(key, move || {
+                let _ = tx.send(());
+            })
+            .unwrap();
+            let other = HotkeyService::new(|| {}).unwrap();
+            for (visible, focused, reserved) in [
+                (false, false, false),
+                (true, true, false),
+                (true, false, true),
+                (true, false, true),
+                (true, true, false),
+                (true, false, true),
+                (false, false, false),
+                (false, true, false),
+                (true, false, true),
+            ] {
+                background.sync_window(visible, focused).unwrap();
+                assert_eq!(other.configure(Some(key)).is_err(), reserved);
+                other.configure(None).unwrap();
+                unsafe {
+                    PostThreadMessageW(background.service.thread_id, WM_HOTKEY, 1, 0);
+                }
+                let timeout = if reserved { 2000 } else { 50 };
+                assert_eq!(
+                    rx.recv_timeout(std::time::Duration::from_millis(timeout))
+                        .is_ok(),
+                    reserved
+                );
+            }
+            drop(background);
+            other.configure(Some(key)).unwrap();
+        }
+
+        #[test]
+        fn background_shortcut_can_retry_after_a_conflict() {
+            let key = Shortcut::parse("Ctrl+Alt+Shift+F18").unwrap();
+            let background = crate::hotkey::BackgroundHotkey::new(key, || {}).unwrap();
+            let other = HotkeyService::new(|| {}).unwrap();
+            other.configure(Some(key)).unwrap();
+            assert!(background.sync_window(true, false).is_err());
+            background.sync_window(true, true).unwrap();
+            other.configure(None).unwrap();
+            background.sync_window(true, false).unwrap();
+            assert!(other.configure(Some(key)).is_err());
+            background.sync_window(false, false).unwrap();
+            other.configure(Some(key)).unwrap();
+        }
+
         #[test]
         fn conflict_preserves_old_registration_and_drop_releases_it() {
             let old = Shortcut::parse("Ctrl+Alt+Shift+F23").unwrap();
@@ -268,6 +327,27 @@ mod platform {
 
 #[cfg(windows)]
 pub use platform::HotkeyService;
+
+/// Reserve a shortcut only while its window is visible in the background.
+/// Focused windows keep their normal WebView keyboard and IME handling.
+pub struct BackgroundHotkey {
+    service: HotkeyService,
+    shortcut: Shortcut,
+}
+
+impl BackgroundHotkey {
+    pub fn new(shortcut: Shortcut, callback: impl Fn() + Send + 'static) -> Result<Self, String> {
+        Ok(Self {
+            service: HotkeyService::new(callback)?,
+            shortcut,
+        })
+    }
+
+    pub fn sync_window(&self, visible: bool, focused: bool) -> Result<(), String> {
+        self.service
+            .configure((visible && !focused).then_some(self.shortcut))
+    }
+}
 
 #[cfg(not(windows))]
 pub struct HotkeyService;
