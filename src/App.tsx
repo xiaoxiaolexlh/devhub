@@ -62,6 +62,11 @@ const TerminalManagerPage = lazy(() =>
     default: module.TerminalManagerPage,
   })),
 );
+const PowerShellHistoryPage = lazy(() =>
+  import("@/components/PowerShellHistoryPage").then((module) => ({
+    default: module.PowerShellHistoryPage,
+  })),
+);
 const ToolManagerPage = lazy(() =>
   import("@/components/ToolManagerPage").then((module) => ({
     default: module.ToolManagerPage,
@@ -292,6 +297,7 @@ function ModeWorkspaces({ mode, onOpenSettings }: { mode: AppMode; onOpenSetting
           entry === "ai-configs" ? <AiConfigPage onOpenSettings={onOpenSettings} /> :
           entry === "ai-agents" ? <AiAgentManagerPage onOpenSettings={onOpenSettings} /> :
           entry === "terminal-manager" ? <TerminalManagerPage onOpenSettings={onOpenSettings} /> :
+          entry === "powershell-history" ? <PowerShellHistoryPage onOpenSettings={onOpenSettings} /> :
           entry === "tool-manager" ? <ToolManagerPage onOpenSettings={onOpenSettings} /> :
           entry === "system-settings" ? <SystemSettingsPage onOpenSettings={onOpenSettings} /> : null}
       </Suspense>

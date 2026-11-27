@@ -8,6 +8,7 @@ mod hotkey;
 mod launcher;
 mod manifest;
 mod node_services;
+mod powershell_history;
 mod scanner;
 mod settings;
 mod startup;
@@ -45,6 +46,9 @@ use commands::{
 use node_services::{
     node_service_clear_task, node_service_list_tasks, node_service_read_info, node_service_run,
     node_service_start_http, node_service_stop_service, node_service_stop_task,
+};
+use powershell_history::{
+    powershell_history_list, powershell_history_read, powershell_history_save,
 };
 use system_settings::{
     system_list_known_folders, system_restore_known_folder, system_set_known_folder,
@@ -139,6 +143,9 @@ pub fn run() {
             node_service_stop_task,
             node_service_stop_service,
             node_service_clear_task,
+            powershell_history_list,
+            powershell_history_read,
+            powershell_history_save,
             export_ai_config_tools,
             import_ai_config_tools,
             delete_extensions,

@@ -1,6 +1,6 @@
 # DevHub
 
-让 VSCode、Cursor、Windsurf、Trae 等 VSCode 系编辑器之间一键同步扩展的 Windows 桌面工具。装一次扩展,选中复制到任意目标编辑器;也能从目标编辑器批量删除多余扩展，并提供独立的目录清理工作台、AI 配置管理、AI 终端管理、Node 服务管理、系统设置和工具管理等综合开发者功能。
+让 VSCode、Cursor、Windsurf、Trae 等 VSCode 系编辑器之间一键同步扩展的 Windows 桌面工具。装一次扩展,选中复制到任意目标编辑器;也能从目标编辑器批量删除多余扩展，并提供独立的目录清理工作台、AI 配置管理、AI 终端管理、PowerShell 历史管理、Node 服务管理、系统设置和工具管理等综合开发者功能。
 
 ## 功能
 
@@ -17,6 +17,7 @@
 - **目录清理** — 导入或编辑 `cleaner.config.json`，按 profile 预览后执行 `clear` / `remove` 永久清理。
 - **AI 配置管理** — 管理 Claude、Codex、OpenCode、Pi、Grok、ZCode 和自定义工具的配置目录，可用资源管理器或内置工作区打开，并导入导出工具清单。
 - **AI 终端管理** — 按项目绑定 AI CLI，在独立 Windows Terminal 窗口中统一启动、切换、新开和精确关闭会话，并可按开关为新会话注入多组临时环境变量。
+- **PowerShell 历史** — 搜索并增删改查 PSReadLine 命令历史；保存前自动备份并检测外部修改，不会执行命令。
 - **Node 服务管理** — 添加 Node 项目文件夹，快捷执行 npm / pnpm 等命令并实时查看输出。
 - **HBuilderX CLI** — 管理多个 uni-app 项目，通过 HBuilderX CLI 一键运行 WEB、发行 Android/iOS 云打包、App 本地打包资源和支付宝小程序，支持命令预览、复制与实时输出。
 - **系统设置** — 管理 Windows 用户/系统环境变量、系统文件夹位置和一键关闭显示器。
@@ -253,6 +254,12 @@ VSCode 系编辑器都从一个**固定目录**加载扩展(`<userhome>/.<editor
 - `remove`: 删除文件或整个目录。
 
 目录清理是永久删除，不进入回收站。执行前会显示 profile、动作和绝对路径列表，并要求二次确认。
+
+## PowerShell 历史
+
+「PowerShell 历史」工作台管理当前 Windows 用户默认 PSReadLine 历史目录中的 `*_history.txt` 文件，支持搜索、添加、编辑、删除和保存。保存会先备份原文件，并在文件被其他程序修改时拒绝覆盖。该功能只修改历史记录，不会执行命令；自定义 `HistorySavePath` 不会自动发现。
+
+历史文件是明文。保存前请关闭所有 PowerShell 和 VS Code PowerShell 会话，否则活动会话之后仍可能覆盖或再次写入历史。
 
 ## 项目结构
 

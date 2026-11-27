@@ -1,6 +1,25 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+export interface PowerShellHistoryFile {
+  id: string;
+  shell: string;
+  fileName: string;
+  path: string;
+  exists: boolean;
+}
+
+export interface PowerShellHistoryDocument {
+  file: PowerShellHistoryFile;
+  commands: string[];
+  revision: string | null;
+}
+
+export interface PowerShellHistorySaveResult {
+  document: PowerShellHistoryDocument;
+  backupPath: string | null;
+}
+
 export interface Editor {
   id: string;
   name: string;
@@ -844,6 +863,19 @@ export const tauri = {
     listen<AiAgentExitEvent>("ai-agent-exit", (event) =>
       handler(event.payload),
     ),
+  powerShellHistoryList: () =>
+    invoke<PowerShellHistoryFile[]>("powershell_history_list"),
+  powerShellHistoryRead: (fileId: string) =>
+    invoke<PowerShellHistoryDocument>("powershell_history_read", { fileId }),
+  powerShellHistorySave: (
+    fileId: string,
+    commands: string[],
+    expectedRevision: string | null,
+  ) => invoke<PowerShellHistorySaveResult>("powershell_history_save", {
+    fileId,
+    commands,
+    expectedRevision,
+  }),
   nodeServiceReadInfo: (path: string) =>
     invoke<NodeServiceInfo>("node_service_read_info", { path }),
   nodeServiceRun: (request: NodeServiceRunRequest) =>

@@ -310,6 +310,7 @@ pub fn launcher_open_mode(
             | "ai-configs"
             | "ai-agents"
             | "terminal-manager"
+            | "powershell-history"
             | "tool-manager"
             | "system-settings"
             | "settings"

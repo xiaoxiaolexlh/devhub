@@ -11,6 +11,7 @@ export type AppMode =
   | "ai-configs"
   | "ai-agents"
   | "terminal-manager"
+  | "powershell-history"
   | "tool-manager"
   | "system-settings"
   | "settings";
@@ -101,6 +102,7 @@ function isAppMode(mode: string | null): mode is AppMode {
     mode === "ai-configs" ||
     mode === "ai-agents" ||
     mode === "terminal-manager" ||
+    mode === "powershell-history" ||
     mode === "tool-manager" ||
     mode === "system-settings"
   );
